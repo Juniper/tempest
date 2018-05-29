@@ -35,7 +35,7 @@ update=0
 result_xml=result.xml
 populate_config=0
 
-if ! options=$(getopt -o VNnfusthdC:pr: -l virtual-env,no-virtual-env,no-site-packages,force,update,smoke,serial,help,debug,config:,populate-config,result-xml: -- "$@")
+if ! options=$(getopt -o VNnfus:thdC:pr: -l virtual-env,no-virtual-env,no-site-packages,force,update,suite,serial,help,debug,config:,populate-config,result-xml: -- "$@")
 then
     # parse error
     usage
@@ -91,6 +91,7 @@ function gen_report {
 function run_tests {
   testr_init
   ${wrapper} find . -type f -name "*.pyc" -delete
+  ${wrapper} export OS_CLOUD=openstack_helm
   export OS_TEST_PATH=./tempest/test_discover
   if [ $debug -eq 1 ]; then
       if [ "$testrargs" = "" ]; then
@@ -101,11 +102,11 @@ function run_tests {
   fi
 
   if [ $serial -eq 1 ]; then
-      ${wrapper} testr run --subunit $testrargs
+      ##${wrapper} testr run --subunit $testrargs
+      ${wrapper} python -m subunit.run  $testrargs | subunit2junitxml -f -o $result_xml
   else
       ${wrapper} testr run --parallel --subunit $testrargs
   fi
-  gen_report
 }
 
 function apply_patches {
@@ -119,8 +120,8 @@ deb http://archive.ubuntu.com/ubuntu/ trusty main restricted universe
 deb http://archive.ubuntu.com/ubuntu/ trusty-updates main restricted universe
 " >& /etc/apt/sources.list.d/contrail-tempest.list
 
-apt-get update
-sudo apt-get install -y git sshpass gcc libxml2-dev libxslt-dev python-dev libffi-dev libssl-dev iputils-ping || exit 1
+#apt-get update
+sudo yum install -y git sshpass gcc libxml2-dev libxslt-dev python-dev libffi-dev libssl-dev iputils-ping python-openstackclient curl || exit 1
 pip install virtualenv
 rm /etc/apt/sources.list.d/contrail-tempest.list
 
@@ -160,7 +161,7 @@ if [ $populate_config -eq 1 ]; then
    (unset http_proxy && ./contrail/contrail-tempest-init.sh)
 fi
 
-apply_patches
+#apply_patches
 (unset http_proxy && run_tests)
 retval=$?
 

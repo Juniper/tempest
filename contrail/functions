@@ -41,35 +41,64 @@ $option = $value
 
 
 function get_image_id() {
-    local keystone_host=$1
+    local keystone_host=http://glance.openstack.svc.cluster.local:80/
     local image_name=$2
     local image_path=$3
-    images=`${with_venv} glance image-list`
+    images=`${with_venv} openstack image list`
     #if grep -q $image_name $images; then
     if [[ "$images" == *\ ${image_name}\ * ]];then
-        image_id=`${with_venv} glance image-list | grep " $image_name "  | awk {'print $2'}`
+        image_id=`${with_venv}export OS_CLOUD=openstack_helm; openstack image list | grep " $image_name "  | awk {'print $2'}`
     else
         image_filename=$(basename $image_path)
         if [ ! -f $image_filename ]; then
             `wget $image_path --no-check-certificate`
         fi
-        export OS_IMAGE_URL=http://${keystone_host}:9292/ && ${with_venv} glance image-create --name $image_name --disk-format qcow2 --container-format bare --visibility public --file $image_filename > /dev/null
-        image_id=`${with_venv} glance image-list | grep " $image_name "  | awk {'print $2'}`
+        #export OS_IMAGE_URL=${keystone_host} && ${with_venv} glance image-create --name $image_name --disk-format qcow2 --container-format bare --visibility public --file $image_filename > /dev/null
+        export OS_IMAGE_URL=${keystone_host} && ${with_venv} openstack image create --disk-format qcow2 --container-format bare --public --file $image_filename $image_name > /dev/null
+        image_id=`${with_venv} nova image-list | grep " $image_name "  | awk {'print $2'}`
     fi
     echo $image_id
 }
 
+function create_endpoint() {
+    local catalog_type=$1
+    local url=$2
+    service_id=`${with_venv} openstack service list | grep $catalog_type | awk '{print $2}'`
+    if [[ $service_id == "" ]]; then
+        service_id=`${with_venv} openstack service create --name ${catalog_type} ${catalog_type} | grep id | awk '{print $4}'`
+        #endpoint_id=`${with_venv} openstack endpoint create --region RegionOne --publicurl ${url}:8082 --adminurl ${url}:8082 --internalurl ${url}:8082 ${service_id}`
+        endpoint_id=`${with_venv} openstack endpoint create --region RegionOne ${service_id} public ${url}:8082`
+        endpoint_id=`${with_venv} openstack endpoint create --region RegionOne ${service_id} admin ${url}:8082`
+        endpoint_id=`${with_venv} openstack endpoint create --region RegionOne ${service_id} internal ${url}:8082`
+    fi
+}
+
 function create_project() {
     local project_name=$1
-    if [[ $AUTH_PROTOCOL -eq 'https' ]]; then
-        keystone='openstack --insecure'
-    else
-        keystone='openstack'
-    fi
+    keystone='openstack '
+#    if [[ $AUTH_PROTOCOL -eq 'https' ]]; then
+#        keystone='openstack --insecure'
+#    else
+#        keystone='openstack'
+#    fi
     id=`${with_venv} ${keystone} project list | grep ' '$project_name' ' | awk '{print $2;}'`
     if [ -z "$id" ]; then
-        ${with_venv} ${keystone} project create --name $project_name --enabled True
+        ${with_venv} ${keystone} project create --enable $project_name
     fi
+}
+
+function sync_demo_project() {
+    local api_host=$1
+    local username=$2
+    local password=$3
+    keystone='openstack '
+    id=`${with_venv} ${keystone} project show demo | grep id | awk '{print $4}' | sed 's/./&-/8' | sed 's/./&-/13' | sed 's/./&-/18' | sed 's/./&-/23'`
+    if [ -z "$id" ]; then
+        ${with_venv} ${keystone} project create --enable demo
+        id=`${with_venv} ${keystone} project show demo | grep id | awk '{print $4}' | sed 's/./&-/8' | sed 's/./&-/13' | sed 's/./&-/18' | sed 's/./&-/23'`
+    fi
+    token=`${with_venv} openstack token issue | grep " id" | awk '{print $4}'`
+    curl -H 'X-Auth-Token: '$token http://${api_host}:8082/project/${id}
 }
 
 function create_user() {
@@ -77,14 +106,15 @@ function create_user() {
     local password=$2
     local project_name=$3
     local role=$4
-    if [[ $AUTH_PROTOCOL -eq 'https' ]]; then
-        keystone='openstack --insecure'
-    else
-        keystone='openstack'
-    fi
-    id=$(${with_venv} ${keystone} user list | grep $username | awk '{print $2;}')
+    keystone='openstack '
+#    if [[ $AUTH_PROTOCOL -eq 'https' ]]; then
+#        keystone='openstack --insecure'
+#    else
+#        keystone='openstack'
+#    fi
+    id=$(${with_venv} ${keystone} user list | grep " "$username  | awk '{print $2;}')
     if [ -z $id ]; then
-        ${with_venv} ${keystone} user create --name $username --project $project_name --password $password --email $username@example.com
+        ${with_venv} ${keystone} user create --project $project_name --password $password --email $username@example.com $username
         ${with_venv} ${keystone} role add --user $username --project $project_name $role
     fi
 }    
