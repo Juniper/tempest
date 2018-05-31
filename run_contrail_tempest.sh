@@ -35,7 +35,7 @@ update=0
 result_xml=result.xml
 populate_config=0
 
-if ! options=$(getopt -o VNnfus:thdC:pr: -l virtual-env,no-virtual-env,no-site-packages,force,update,suite,serial,help,debug,config:,populate-config,result-xml: -- "$@")
+if ! options=$(getopt -o VNnfusthdC:pr: -l virtual-env,no-virtual-env,no-site-packages,force,update,smoke,serial,help,debug,config:,populate-config,result-xml: -- "$@")
 then
     # parse error
     usage
@@ -102,11 +102,11 @@ function run_tests {
   fi
 
   if [ $serial -eq 1 ]; then
-      ##${wrapper} testr run --subunit $testrargs
-      ${wrapper} python -m subunit.run  $testrargs | subunit2junitxml -f -o $result_xml
+      ${wrapper} testr run --subunit $testrargs
   else
       ${wrapper} testr run --parallel --subunit $testrargs
   fi
+  gen_report
 }
 
 function apply_patches {
