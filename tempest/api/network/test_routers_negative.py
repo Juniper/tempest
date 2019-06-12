@@ -15,12 +15,9 @@
 
 from tempest.api.network import base
 from tempest.common import utils
-from tempest import config
 from tempest.lib.common.utils import data_utils
 from tempest.lib import decorators
 from tempest.lib import exceptions as lib_exc
-
-CONF = config.CONF
 
 
 class RoutersNegativeTest(base.BaseNetworkTest):
@@ -84,6 +81,8 @@ class RoutersNegativeTest(base.BaseNetworkTest):
     def test_router_remove_interface_in_use_returns_409(self):
         self.routers_client.add_router_interface(self.router['id'],
                                                  subnet_id=self.subnet['id'])
+        self.addCleanup(self.routers_client.remove_router_interface,
+                        self.router['id'], subnet_id=self.subnet['id'])
         self.assertRaises(lib_exc.Conflict,
                           self.routers_client.delete_router,
                           self.router['id'])

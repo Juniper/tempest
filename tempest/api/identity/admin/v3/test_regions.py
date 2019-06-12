@@ -20,6 +20,10 @@ from tempest.lib import decorators
 
 
 class RegionsTestJSON(base.BaseIdentityV3AdminTest):
+    # NOTE: force_tenant_isolation is true in the base class by default but
+    # overridden to false here to allow test execution for clouds using the
+    # pre-provisioned credentials provider.
+    force_tenant_isolation = False
 
     @classmethod
     def setup_clients(cls):
@@ -34,13 +38,9 @@ class RegionsTestJSON(base.BaseIdentityV3AdminTest):
             r_description = data_utils.rand_name('description')
             region = cls.client.create_region(
                 description=r_description)['region']
+            cls.addClassResourceCleanup(
+                cls.client.delete_region, region['id'])
             cls.setup_regions.append(region)
-
-    @classmethod
-    def resource_cleanup(cls):
-        for r in cls.setup_regions:
-            cls.client.delete_region(r['id'])
-        super(RegionsTestJSON, cls).resource_cleanup()
 
     @decorators.idempotent_id('56186092-82e4-43f2-b954-91013218ba42')
     def test_create_update_get_delete_region(self):

@@ -6,17 +6,17 @@ Tempest Coding Guide
 - Step 2: Read on
 
 Tempest Specific Commandments
-------------------------------
+-----------------------------
 
 - [T102] Cannot import OpenStack python clients in tempest/api &
-         tempest/scenario tests
+  tempest/scenario tests
 - [T104] Scenario tests require a services decorator
 - [T105] Tests cannot use setUpClass/tearDownClass
 - [T106] vim configuration should not be kept in source files.
 - [T107] Check that a service tag isn't in the module path
 - [T108] Check no hyphen at the end of rand_name() argument
 - [T109] Cannot use testtools.skip decorator; instead use
-         decorators.skip_because from tempest.lib
+  decorators.skip_because from tempest.lib
 - [T110] Check that service client names of GET should be consistent
 - [T111] Check that service client names of DELETE should be consistent
 - [T112] Check that tempest.lib should not import local tempest code
@@ -25,6 +25,10 @@ Tempest Specific Commandments
 - [T115] Check that admin tests should exist under admin path
 - [N322] Method's default argument shouldn't be mutable
 - [T116] Unsupported 'message' Exception attribute in PY3
+- [T117] Check negative tests have ``@decorators.attr(type=['negative'])``
+  applied.
+
+It is recommended to use ``tox -eautopep8`` before submitting a patch.
 
 Test Data/Configuration
 -----------------------
@@ -33,6 +37,30 @@ Test Data/Configuration
 - Clean up test data at the completion of each test
 - Use configuration files for values that will vary by environment
 
+Supported OpenStack Components
+------------------------------
+
+Tempest's :ref:`library` and :ref:`plugin interface <tempest_plugin>` can be
+leveraged to support integration testing for virtually any OpenStack component.
+
+However, Tempest only offers **in-tree** integration testing coverage for the
+following components:
+
+* Cinder
+* Glance
+* Keystone
+* Neutron
+* Nova
+* Swift
+
+Historically, Tempest offered in-tree testing for other components as well, but
+since the introduction of the `External Plugin Interface`_, Tempest's in-tree
+testing scope has been limited to the projects above. Integration tests for
+projects not included above should go into one of the
+`relevant plugin projects`_.
+
+.. _External Plugin Interface: https://specs.openstack.org/openstack/qa-specs/specs/tempest/implemented/tempest-external-plugin-interface.html
+.. _relevant plugin projects: https://docs.openstack.org/tempest/latest/plugin-registry.html#detected-plugins
 
 Exception Handling
 ------------------
@@ -84,7 +112,7 @@ For example ``self.assertIn`` can include the whole set.
 It is recommended to use testtools `matcher`_ for the more tricky assertions.
 You can implement your own specific `matcher`_ as well.
 
-.. _matcher: http://testtools.readthedocs.org/en/latest/for-test-authors.html#matchers
+.. _matcher: https://testtools.readthedocs.org/en/latest/for-test-authors.html#matchers
 
 If the test case fails you can see the related logs and the information
 carried by the exception (exception class, backtrack and exception info).
@@ -106,7 +134,7 @@ Service tagging is used to specify which services are exercised by a particular
 test method. You specify the services with the ``tempest.common.utils.services``
 decorator. For example:
 
-@utils.services('compute', 'image')
+``@utils.services('compute', 'image')``
 
 Valid service tag names are the same as the list of directories in tempest.api
 that have tests.
@@ -118,41 +146,89 @@ name. For example, any test that make an API call to a service other than Nova
 in ``tempest.api.compute`` would require a service tag for those services,
 however they do not need to be tagged as ``compute``.
 
+Test Attributes
+---------------
+Tempest leverages `test attributes`_ which are a simple but effective way of
+distinguishing between different "types" of API tests. A test can be "tagged"
+with such attributes using the ``decorators.attr`` decorator, for example::
+
+    @decorators.attr(type=['negative'])
+    def test_aggregate_create_aggregate_name_length_less_than_1(self):
+        [...]
+
+These test attributes can be used for test selection via regular expressions.
+For example, ``(?!.*\[.*\bslow\b.*\])(^tempest\.scenario)`` runs all the tests
+in the ``scenario`` test module, *except* for those tagged with the ``slow``
+attribute (via a negative lookahead in the regular expression). These
+attributes are used in Tempest's ``tox.ini`` as well as Tempest's Zuul job
+definitions for specifying particular batches of Tempest test suites to run.
+
+.. _test attributes: https://testtools.readthedocs.io/en/latest/for-test-authors.html?highlight=attr#test-attributes
+
+Negative Attribute
+^^^^^^^^^^^^^^^^^^
+The ``type='negative'`` attribute is used to signify that a test is a negative
+test, which is a test that handles invalid input gracefully. This attribute
+should be applied to all negative test scenarios.
+
+This attribute must be applied to each test that belongs to a negative test
+class, i.e. a test class name ending with "Negative.*" substring.
+
+Slow Attribute
+^^^^^^^^^^^^^^
+The ``type='slow'`` attribute is used to signify that a test takes a long time
+to run, relatively speaking. This attribute is usually applied to
+:ref:`scenario tests <scenario_field_guide>`, which involve a complicated
+series of API operations, the total runtime of which can be relatively long.
+This long runtime has performance implications on `Zuul`_ jobs, which is why
+the ``slow`` attribute is leveraged to run slow tests on a selective basis,
+to keep total `Zuul`_ job runtime down to a reasonable time frame.
+
+.. _Zuul: https://docs.openstack.org/infra/zuul/
+
+Smoke Attribute
+^^^^^^^^^^^^^^^
+The ``type='smoke'`` attribute is used to signify that a test is a so-called
+smoke test, which is a type of test that tests the most vital OpenStack
+functionality, like listing servers or flavors or creating volumes. The
+attribute should be sparingly applied to only the tests that sanity-check the
+most essential functionality of an OpenStack cloud.
+
 Test fixtures and resources
 ---------------------------
 Test level resources should be cleaned-up after the test execution. Clean-up
-is best scheduled using `addCleanup` which ensures that the resource cleanup
+is best scheduled using ``addCleanup`` which ensures that the resource cleanup
 code is always invoked, and in reverse order with respect to the creation
 order.
 
-Test class level resources should be defined in the `resource_setup` method of
-the test class, except for any credential obtained from the credentials
-provider, which should be set-up in the `setup_credentials` method.
-Cleanup is best scheduled using `addClassResourceCleanup` which ensures that
+Test class level resources should be defined in the ``resource_setup`` method
+of the test class, except for any credential obtained from the credentials
+provider, which should be set-up in the ``setup_credentials`` method.
+Cleanup is best scheduled using ``addClassResourceCleanup`` which ensures that
 the cleanup code is always invoked, and in reverse order with respect to the
 creation order.
 
 In both cases - test level and class level cleanups - a wait loop should be
 scheduled before the actual delete of resources with an asynchronous delete.
 
-The test base class `BaseTestCase` defines Tempest framework for class level
-fixtures. `setUpClass` and `tearDownClass` are defined here and cannot be
+The test base class ``BaseTestCase`` defines Tempest framework for class level
+fixtures. ``setUpClass`` and ``tearDownClass`` are defined here and cannot be
 overwritten by subclasses (enforced via hacking rule T105).
 
 Set-up is split in a series of steps (setup stages), which can be overwritten
 by test classes. Set-up stages are:
 
-- `skip_checks`
-- `setup_credentials`
-- `setup_clients`
-- `resource_setup`
+- ``skip_checks``
+- ``setup_credentials``
+- ``setup_clients``
+- ``resource_setup``
 
 Tear-down is also split in a series of steps (teardown stages), which are
 stacked for execution only if the corresponding setup stage had been
 reached during the setup phase. Tear-down stages are:
 
-- `clear_credentials` (defined in the base test class)
-- `resource_cleanup`
+- ``clear_credentials`` (defined in the base test class)
+- ``resource_cleanup``
 
 Skipping Tests
 --------------
@@ -178,7 +254,7 @@ negative testing should be handled with project function tests.
 All negative tests should be based on `API-WG guideline`_ . Such negative
 tests can block any changes from accurate failure code to invalid one.
 
-.. _API-WG guideline: http://specs.openstack.org/openstack/api-wg/guidelines/http.html#failure-code-clarifications
+.. _API-WG guideline: https://specs.openstack.org/openstack/api-wg/guidelines/http.html#failure-code-clarifications
 
 If facing some gray area which is not clarified on the above guideline, propose
 a new guideline to the API-WG. With a proposal to the API-WG we will be able to
@@ -299,18 +375,19 @@ is required. If there is more than one test case in the class individual
 docstrings for the workflow in each test methods can be used instead. A good
 example of this would be::
 
-    class TestVolumeBootPattern(manager.ScenarioTest):
-        """
-        This test case attempts to reproduce the following steps:
+    class TestServerBasicOps(manager.ScenarioTest):
 
-         * Create in Cinder some bootable volume importing a Glance image
-         * Boot an instance from the bootable volume
-         * Write content to the volume
-         * Delete an instance and Boot a new instance from the volume
-         * Check written content in the instance
-         * Create a volume snapshot while the instance is running
-         * Boot an additional instance from the new snapshot based volume
-         * Check written content in the instance booted from snapshot
+        """The test suite for server basic operations
+
+        This smoke test case follows this basic set of operations:
+         * Create a keypair for use in launching an instance
+         * Create a security group to control network access in instance
+         * Add simple permissive rules to the security group
+         * Launch an instance
+         * Perform ssh to instance
+         * Verify metadata service
+         * Verify metadata on config_drive
+         * Terminate the instance
         """
 
 Test Identification with Idempotent ID
@@ -363,13 +440,24 @@ to Tempest.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 When adding tests for new features that were not in previous releases of the
-projects the new test has to be properly skipped with a feature flag. Whether
-this is just as simple as using the @utils.requires_ext() decorator to
-check if the required extension (or discoverable optional API) is enabled or
+projects the new test has to be properly skipped with a feature flag. This can
+be just as simple as using the ``@utils.requires_ext()`` or
+``testtools.skipUnless`` decorators to check if the required extension (or
+discoverable optional API) or feature is enabled or can be as difficult as
 adding a new config option to the appropriate section. If there isn't a method
 of selecting the new **feature** from the config file then there won't be a
-mechanism to disable the test with older stable releases and the new test won't
-be able to merge.
+mechanism to disable the test with older stable releases and the new test
+won't be able to merge.
+
+Introduction of a new feature flag requires specifying a default value for
+the corresponding config option that is appropriate in the latest OpenStack
+release. Because Tempest is branchless, the feature flag's default value will
+need to be overridden to a value that is appropriate in earlier releases
+in which the feature isn't available. In DevStack, this can be accomplished
+by modifying Tempest's `lib installation script`_ for previous branches
+(because DevStack is branched).
+
+.. _lib installation script: https://opendev.org/openstack/devstack/src/branch/master/lib/tempest
 
 2. Bug fix on core project needing Tempest changes
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -385,7 +473,7 @@ following procedure::
 
 Otherwise the bug fix won't be able to land in the project.
 
-Handily, `Zuul’s cross-repository dependencies
+Handily, `Zuul's cross-repository dependencies
 <https://docs.openstack.org/infra/zuul/user/gating.html#cross-project-dependencies>`_.
 can be leveraged to do without step 2 and to have steps 3 and 4 happen
 "atomically". To do that, make the patch written in step 1 to depend (refer to

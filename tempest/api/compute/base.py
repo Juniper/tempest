@@ -17,11 +17,11 @@ import time
 
 from oslo_log import log as logging
 
-from tempest.api.compute import api_microversion_fixture
 from tempest.common import compute
 from tempest.common import waiters
 from tempest import config
 from tempest import exceptions
+from tempest.lib.common import api_microversion_fixture
 from tempest.lib.common import api_version_request
 from tempest.lib.common import api_version_utils
 from tempest.lib.common.utils import data_utils
@@ -99,6 +99,44 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
         cls.versions_client = cls.os_primary.compute_versions_client
         if CONF.service_available.cinder:
             cls.volumes_client = cls.os_primary.volumes_client_latest
+        if CONF.service_available.glance:
+            if CONF.image_feature_enabled.api_v1:
+                cls.images_client = cls.os_primary.image_client
+            elif CONF.image_feature_enabled.api_v2:
+                cls.images_client = cls.os_primary.image_client_v2
+            else:
+                raise lib_exc.InvalidConfiguration(
+                    'Either api_v1 or api_v2 must be True in '
+                    '[image-feature-enabled].')
+        cls._check_depends_on_nova_network()
+
+    @classmethod
+    def _check_depends_on_nova_network(cls):
+        # Since nova-network APIs were removed from Nova in the Rocky release,
+        # determine, based on the max version from the version document, if
+        # the compute API is >Queens and if so, skip tests that rely on
+        # nova-network.
+        if not getattr(cls, 'depends_on_nova_network', False):
+            return
+        versions = cls.versions_client.list_versions()['versions']
+        # Find the v2.1 version which will tell us our max version for the
+        # compute API we're testing against.
+        for version in versions:
+            if version['id'] == 'v2.1':
+                max_version = api_version_request.APIVersionRequest(
+                    version['version'])
+                break
+        else:
+            LOG.warning(
+                'Unable to determine max v2.1 compute API version: %s',
+                versions)
+            return
+
+        # The max compute API version in Queens is 2.60 so we cap
+        # at that version.
+        queens = api_version_request.APIVersionRequest('2.60')
+        if max_version > queens:
+            raise cls.skipException('nova-network is gone')
 
     @classmethod
     def resource_setup(cls):
@@ -116,6 +154,36 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
         cls.ssh_user = CONF.validation.image_ssh_user
         cls.image_ssh_user = CONF.validation.image_ssh_user
         cls.image_ssh_password = CONF.validation.image_ssh_password
+
+    @classmethod
+    def is_requested_microversion_compatible(cls, max_version):
+        """Check the compatibility of selected request microversion
+
+        This method will check if selected request microversion
+        (cls.request_microversion) for test is compatible with respect
+        to 'max_version'. Compatible means if selected request microversion
+        is in the range(<=) of 'max_version'.
+
+        :param max_version: maximum microversion to compare for compatibility.
+            Example: '2.30'
+        :returns: True if selected request microversion is compatible with
+            'max_version'. False in other case.
+        """
+        try:
+            req_version_obj = api_version_request.APIVersionRequest(
+                cls.request_microversion)
+        # NOTE(gmann): This is case where this method is used before calling
+        # resource_setup(), where cls.request_microversion is set. There may
+        # not be any such case but still we can handle this case.
+        except AttributeError:
+            request_microversion = (
+                api_version_utils.select_request_microversion(
+                    cls.min_microversion,
+                    CONF.compute.min_microversion))
+            req_version_obj = api_version_request.APIVersionRequest(
+                request_microversion)
+        max_version_obj = api_version_request.APIVersionRequest(max_version)
+        return req_version_obj <= max_version_obj
 
     @classmethod
     def server_check_teardown(cls):
@@ -138,19 +206,6 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
                                                     cls.server_id)
                 cls.server_id = None
                 raise
-
-    @classmethod
-    def clear_resources(cls, resource_name, resources, resource_del_func):
-        LOG.debug('Clearing %s: %s', resource_name,
-                  ','.join(map(str, resources)))
-        for res_id in resources:
-            try:
-                test_utils.call_and_ignore_notfound_exc(
-                    resource_del_func, res_id)
-            except Exception as exc:
-                LOG.exception('Exception raised deleting %s: %s',
-                              resource_name, res_id)
-                LOG.exception(exc)
 
     @classmethod
     def create_test_server(cls, validatable=False, volume_backed=False,
@@ -176,11 +231,12 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
             cls.request_microversion)
         v2_37_version = api_version_request.APIVersionRequest('2.37')
 
+        tenant_network = cls.get_tenant_network()
         # NOTE(snikitin): since microversion v2.37 'networks' field is required
-        if request_version >= v2_37_version and 'networks' not in kwargs:
+        if (request_version >= v2_37_version and 'networks' not in kwargs and
+            not tenant_network):
             kwargs['networks'] = 'none'
 
-        tenant_network = cls.get_tenant_network()
         body, servers = compute.create_test_server(
             cls.os_primary,
             validatable,
@@ -254,7 +310,11 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
 
     @classmethod
     def create_image_from_server(cls, server_id, **kwargs):
-        """Wrapper utility that returns an image created from the server."""
+        """Wrapper utility that returns an image created from the server.
+
+        If compute microversion >= 2.36, the returned image response will
+        be from the image service API rather than the compute image proxy API.
+        """
         name = kwargs.pop('name',
                           data_utils.rand_name(cls.__name__ + "-image"))
         wait_until = kwargs.pop('wait_until', None)
@@ -267,14 +327,23 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
             image_id = image['image_id']
         else:
             image_id = data_utils.parse_image_id(image.response['location'])
+
+        # The compute image proxy APIs were deprecated in 2.35 so
+        # use the images client directly if the API microversion being
+        # used is >=2.36.
+        if not cls.is_requested_microversion_compatible('2.35'):
+            client = cls.images_client
+        else:
+            client = cls.compute_images_client
         cls.addClassResourceCleanup(test_utils.call_and_ignore_notfound_exc,
-                                    cls.compute_images_client.delete_image,
-                                    image_id)
+                                    client.delete_image, image_id)
 
         if wait_until is not None:
             try:
-                waiters.wait_for_image_status(cls.compute_images_client,
-                                              image_id, wait_until)
+                wait_until = wait_until.upper()
+                if not cls.is_requested_microversion_compatible('2.35'):
+                    wait_until = wait_until.lower()
+                waiters.wait_for_image_status(client, image_id, wait_until)
             except lib_exc.NotFound:
                 if wait_until.upper() == 'ACTIVE':
                     # If the image is not found after create_image returned
@@ -292,7 +361,11 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
                             image_id=image_id)
                 else:
                     raise
-            image = cls.compute_images_client.show_image(image_id)['image']
+            image = client.show_image(image_id)
+            # Compute image client returns response wrapped in 'image' element
+            # which is not the case with Glance image client.
+            if 'image' in image:
+                image = image['image']
 
             if wait_until.upper() == 'ACTIVE':
                 if wait_for_server:
@@ -344,14 +417,16 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
         except Exception:
             LOG.exception('Failed to delete server %s', server_id)
 
-    @classmethod
-    def resize_server(cls, server_id, new_flavor_id, **kwargs):
+    def resize_server(self, server_id, new_flavor_id, **kwargs):
         """resize and confirm_resize an server, waits for it to be ACTIVE."""
-        cls.servers_client.resize_server(server_id, new_flavor_id, **kwargs)
-        waiters.wait_for_server_status(cls.servers_client, server_id,
+        self.servers_client.resize_server(server_id, new_flavor_id, **kwargs)
+        waiters.wait_for_server_status(self.servers_client, server_id,
                                        'VERIFY_RESIZE')
-        cls.servers_client.confirm_resize_server(server_id)
-        waiters.wait_for_server_status(cls.servers_client, server_id, 'ACTIVE')
+        self.servers_client.confirm_resize_server(server_id)
+        waiters.wait_for_server_status(
+            self.servers_client, server_id, 'ACTIVE')
+        server = self.servers_client.show_server(server_id)['server']
+        self.assert_flavor_equal(new_flavor_id, server['flavor'])
 
     @classmethod
     def delete_volume(cls, volume_id):
@@ -382,7 +457,7 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
             else:
                 msg = ('When validation.connect_method equals floating, '
                        'validation_resources cannot be None')
-                raise exceptions.InvalidParam(invalid_param=msg)
+                raise lib_exc.InvalidParam(invalid_param=msg)
         elif CONF.validation.connect_method == 'fixed':
             addresses = server['addresses'][CONF.validation.network_for_ssh]
             for address in addresses:
@@ -395,14 +470,14 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
     def setUp(self):
         super(BaseV2ComputeTest, self).setUp()
         self.useFixture(api_microversion_fixture.APIMicroversionFixture(
-            self.request_microversion))
+            compute_microversion=self.request_microversion))
 
     @classmethod
     def create_volume(cls, image_ref=None, **kwargs):
         """Create a volume and wait for it to become 'available'.
 
         :param image_ref: Specify an image id to create a bootable volume.
-        :**kwargs: other parameters to create volume.
+        :param kwargs: other parameters to create volume.
         :returns: The available volume.
         """
         if 'size' not in kwargs:
@@ -434,12 +509,12 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
             # the compute API will return a 400 response.
             if volume['status'] == 'in-use':
                 self.servers_client.detach_volume(server['id'], volume['id'])
-        except exceptions.NotFound:
+        except lib_exc.NotFound:
             # Ignore 404s on detach in case the server is deleted or the volume
             # is already detached.
             pass
 
-    def attach_volume(self, server, volume, device=None, check_reserved=False):
+    def attach_volume(self, server, volume, device=None, tag=None):
         """Attaches volume to server and waits for 'in-use' volume status.
 
         The volume will be detached when the test tears down.
@@ -448,14 +523,13 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
         :param volume: The volume to attach.
         :param device: Optional mountpoint for the attached volume. Note that
             this is not guaranteed for all hypervisors and is not recommended.
-        :param check_reserved: Consider a status of reserved as valid for
-            completion. This is to handle new Cinder attach where we more
-            accurately use 'reserved' for things like attaching to a shelved
-            server.
+        :param tag: Optional device role tag to apply to the volume.
         """
         attach_kwargs = dict(volumeId=volume['id'])
         if device:
             attach_kwargs['device'] = device
+        if tag:
+            attach_kwargs['tag'] = tag
 
         attachment = self.servers_client.attach_volume(
             server['id'], **attach_kwargs)['volumeAttachment']
@@ -467,12 +541,30 @@ class BaseV2ComputeTest(api_version_utils.BaseMicroversionTest,
         # Ignore 404s on detach in case the server is deleted or the volume
         # is already detached.
         self.addCleanup(self._detach_volume, server, volume)
-        statuses = ['in-use']
-        if check_reserved:
-            statuses.append('reserved')
         waiters.wait_for_volume_resource_status(self.volumes_client,
-                                                volume['id'], statuses)
+                                                volume['id'], 'in-use')
         return attachment
+
+    def assert_flavor_equal(self, flavor_id, server_flavor):
+        """Check whether server_flavor equals to flavor.
+
+        :param flavor_id: flavor id
+        :param server_flavor: flavor info returned by show_server.
+        """
+        # Nova API > 2.46 no longer includes flavor.id, and schema check
+        # will cover whether 'id' should be in flavor
+        if server_flavor.get('id'):
+            msg = ('server flavor is not same as flavor!')
+            self.assertEqual(flavor_id, server_flavor['id'], msg)
+        else:
+            flavor = self.flavors_client.show_flavor(flavor_id)['flavor']
+            self.assertEqual(flavor['name'], server_flavor['original_name'],
+                             "original_name in server flavor is not same as "
+                             "flavor name!")
+            for key in ['ram', 'vcpus', 'disk']:
+                msg = ('attribute %s in server flavor is not same as '
+                       'flavor!' % key)
+                self.assertEqual(flavor[key], server_flavor[key], msg)
 
 
 class BaseV2ComputeAdminTest(BaseV2ComputeTest):
@@ -501,17 +593,18 @@ class BaseV2ComputeAdminTest(BaseV2ComputeTest):
         self.addCleanup(client.delete_flavor, flavor['id'])
         return flavor
 
-    def get_host_for_server(self, server_id):
-        server_details = self.admin_servers_client.show_server(server_id)
+    @classmethod
+    def get_host_for_server(cls, server_id):
+        server_details = cls.admin_servers_client.show_server(server_id)
         return server_details['server']['OS-EXT-SRV-ATTR:host']
 
     def get_host_other_than(self, server_id):
         source_host = self.get_host_for_server(server_id)
 
-        hypers = self.os_admin.hypervisor_client.list_hypervisors(
-            )['hypervisors']
-        hosts = [hyper['hypervisor_hostname'] for hyper in hypers
-                 if hyper['state'] == 'up' and hyper['status'] == 'enabled']
+        svcs = self.os_admin.services_client.list_services(
+            binary='nova-compute')['services']
+        hosts = [svc['host'] for svc in svcs
+                 if svc['state'] == 'up' and svc['status'] == 'enabled']
 
         for target_host in hosts:
             if source_host != target_host:

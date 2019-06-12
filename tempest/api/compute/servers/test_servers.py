@@ -19,7 +19,6 @@ from tempest.api.compute import base
 from tempest.common import waiters
 from tempest import config
 from tempest.lib.common.utils import data_utils
-from tempest.lib.common.utils import test_utils
 from tempest.lib import decorators
 
 CONF = config.CONF
@@ -40,11 +39,7 @@ class ServersTestJSON(base.BaseV2ComputeTest):
         # If an admin password is provided on server creation, the server's
         # root password should be set to that password.
         server = self.create_test_server(adminPass='testpassword')
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, server['id'])
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, server['id'])
+        self.addCleanup(self.delete_server, server['id'])
 
         # Verify the password is set correctly in the response
         self.assertEqual('testpassword', server['adminPass'])
@@ -59,19 +54,11 @@ class ServersTestJSON(base.BaseV2ComputeTest):
         server = self.create_test_server(name=server_name,
                                          wait_until='ACTIVE')
         id1 = server['id']
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, id1)
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, id1)
+        self.addCleanup(self.delete_server, id1)
         server = self.create_test_server(name=server_name,
                                          wait_until='ACTIVE')
         id2 = server['id']
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, id2)
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, id2)
+        self.addCleanup(self.delete_server, id2)
         self.assertNotEqual(id1, id2, "Did not create a new server")
         server = self.client.show_server(id1)['server']
         name1 = server['name']
@@ -87,13 +74,9 @@ class ServersTestJSON(base.BaseV2ComputeTest):
         self.keypairs_client.create_keypair(name=key_name)
         self.addCleanup(self.keypairs_client.delete_keypair, key_name)
         self.keypairs_client.list_keypairs()
-        server = self.create_test_server(key_name=key_name)
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, server['id'])
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, server['id'])
-        waiters.wait_for_server_status(self.client, server['id'], 'ACTIVE')
+        server = self.create_test_server(key_name=key_name,
+                                         wait_until='ACTIVE')
+        self.addCleanup(self.delete_server, server['id'])
         server = self.client.show_server(server['id'])['server']
         self.assertEqual(key_name, server['key_name'])
 
@@ -115,11 +98,7 @@ class ServersTestJSON(base.BaseV2ComputeTest):
     def test_update_server_name(self):
         # The server name should be changed to the provided value
         server = self.create_test_server(wait_until='ACTIVE')
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, server['id'])
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, server['id'])
+        self.addCleanup(self.delete_server, server['id'])
         # Update instance name with non-ASCII characters
         prefix_name = u'\u00CD\u00F1st\u00E1\u00F1c\u00E9'
         self._update_server_name(server['id'], 'ACTIVE', prefix_name)
@@ -137,11 +116,7 @@ class ServersTestJSON(base.BaseV2ComputeTest):
     def test_update_access_server_address(self):
         # The server's access addresses should reflect the provided values
         server = self.create_test_server(wait_until='ACTIVE')
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, server['id'])
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, server['id'])
+        self.addCleanup(self.delete_server, server['id'])
 
         # Update the IPv4 and IPv6 access addresses
         self.client.update_server(server['id'],
@@ -157,23 +132,82 @@ class ServersTestJSON(base.BaseV2ComputeTest):
     @decorators.idempotent_id('38fb1d02-c3c5-41de-91d3-9bc2025a75eb')
     def test_create_server_with_ipv6_addr_only(self):
         # Create a server without an IPv4 address(only IPv6 address).
-        server = self.create_test_server(accessIPv6='2001:2001::3')
-        self.addCleanup(waiters.wait_for_server_termination,
-                        self.servers_client, server['id'])
-        self.addCleanup(
-            test_utils.call_and_ignore_notfound_exc,
-            self.servers_client.delete_server, server['id'])
-        waiters.wait_for_server_status(self.client, server['id'], 'ACTIVE')
+        server = self.create_test_server(accessIPv6='2001:2001::3',
+                                         wait_until='ACTIVE')
+        self.addCleanup(self.delete_server, server['id'])
         server = self.client.show_server(server['id'])['server']
         self.assertEqual('2001:2001::3', server['accessIPv6'])
+
+    @decorators.related_bug('1730756')
+    @decorators.idempotent_id('defbaca5-d611-49f5-ae21-56ee25d2db49')
+    def test_create_server_specify_multibyte_character_name(self):
+        # prefix character is:
+        # http://unicode.org/cldr/utility/character.jsp?a=20A1
+
+        # We use a string with 3 byte utf-8 character due to nova
+        # will return 400(Bad Request) if we attempt to send a name which has
+        # 4 byte utf-8 character.
+        utf8_name = data_utils.rand_name(b'\xe2\x82\xa1'.decode('utf-8'))
+        self.create_test_server(name=utf8_name, wait_until='ACTIVE')
 
 
 class ServerShowV247Test(base.BaseV2ComputeTest):
     min_microversion = '2.47'
     max_microversion = 'latest'
 
+    # NOTE(gmann): This test tests the server APIs response schema
+    # Along with 2.47 microversion schema this test class tests the
+    # other microversions 2.9, 2.19 and 2.26 server APIs response schema
+    # also. 2.47 APIs schema are on top of 2.9->2.19->2.26 schema so
+    # below tests cover all of the schema.
+
     @decorators.idempotent_id('88b0bdb2-494c-11e7-a919-92ebcb67fe33')
     def test_show_server(self):
         server = self.create_test_server()
         # All fields will be checked by API schema
         self.servers_client.show_server(server['id'])
+
+    @decorators.idempotent_id('8de397c2-57d0-4b90-aa30-e5d668f21a8b')
+    def test_update_rebuild_list_server(self):
+        server = self.create_test_server()
+        # Checking update API response schema
+        self.servers_client.update_server(server['id'])
+        waiters.wait_for_server_status(self.servers_client, server['id'],
+                                       'ACTIVE')
+        # Checking rebuild API response schema
+        self.servers_client.rebuild_server(server['id'], self.image_ref_alt)
+        waiters.wait_for_server_status(self.servers_client,
+                                       server['id'], 'ACTIVE')
+        # Checking list details API response schema
+        self.servers_client.list_servers(detail=True)
+
+
+class ServerShowV263Test(base.BaseV2ComputeTest):
+    min_microversion = '2.63'
+    max_microversion = 'latest'
+
+    @decorators.idempotent_id('71b8e3d5-11d2-494f-b917-b094a4afed3c')
+    def test_show_update_rebuild_list_server(self):
+        trusted_certs = ['test-cert-1', 'test-cert-2']
+        server = self.create_test_server(
+            trusted_image_certificates=trusted_certs,
+            wait_until='ACTIVE')
+
+        # Check show API response schema
+        self.servers_client.show_server(server['id'])['server']
+
+        # Check update API response schema
+        self.servers_client.update_server(server['id'])
+        waiters.wait_for_server_status(self.servers_client,
+                                       server['id'], 'ACTIVE')
+
+        # Check rebuild API response schema
+        self.servers_client.rebuild_server(server['id'], self.image_ref_alt)
+        waiters.wait_for_server_status(self.servers_client,
+                                       server['id'], 'ACTIVE')
+
+        # Check list details API response schema
+        params = {'trusted_image_certificates': trusted_certs}
+        servers = self.servers_client.list_servers(
+            detail=True, **params)['servers']
+        self.assertNotEmpty(servers)

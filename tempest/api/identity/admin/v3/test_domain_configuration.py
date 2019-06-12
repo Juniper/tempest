@@ -21,6 +21,10 @@ from tempest.lib import exceptions as lib_exc
 
 
 class DomainConfigurationTestJSON(base.BaseIdentityV3AdminTest):
+    # NOTE: force_tenant_isolation is true in the base class by default but
+    # overridden to false here to allow test execution for clouds using the
+    # pre-provisioned credentials provider.
+    force_tenant_isolation = False
 
     custom_config = {
         "identity": {
@@ -36,18 +40,6 @@ class DomainConfigurationTestJSON(base.BaseIdentityV3AdminTest):
     def setup_clients(cls):
         super(DomainConfigurationTestJSON, cls).setup_clients()
         cls.client = cls.domain_config_client
-
-    @classmethod
-    def resource_setup(cls):
-        super(DomainConfigurationTestJSON, cls).resource_setup()
-        cls.group = cls.groups_client.create_group(
-            name=data_utils.rand_name('group'),
-            description=data_utils.rand_name('group-desc'))['group']
-
-    @classmethod
-    def resource_cleanup(cls):
-        cls.groups_client.delete_group(cls.group['id'])
-        super(DomainConfigurationTestJSON, cls).resource_cleanup()
 
     def _create_domain_and_config(self, config):
         domain = self.setup_test_domain()

@@ -44,15 +44,14 @@ LOG = logging.getLogger(__name__)
 def is_scheduler_filter_enabled(filter_name):
     """Check the list of enabled compute scheduler filters from config.
 
-    This function checks whether the given compute scheduler filter is
-    available and configured in the config file. If the
-    scheduler_available_filters option is set to 'all' (Default value. which
-    means default filters are configured in nova) in tempest.conf then, this
-    function returns True with assumption that requested filter 'filter_name'
-    is one of available filter in nova ("nova.scheduler.filters.all_filters").
+    This function checks whether the given compute scheduler filter is enabled
+    in the nova config file. If the scheduler_enabled_filters option is set to
+    'all' in tempest.conf then, this function returns True with assumption that
+    requested filter 'filter_name' is one of the enabled filters in nova
+    ("nova.scheduler.filters.all_filters").
     """
 
-    filters = CONF.compute_feature_enabled.scheduler_available_filters
+    filters = CONF.compute_feature_enabled.scheduler_enabled_filters
     if not filters:
         return False
     if 'all' in filters:
@@ -79,23 +78,22 @@ def create_test_server(clients, validatable=False, validation_resources=None,
     :param wait_until: Server status to wait for the server to reach after
         its creation.
     :param volume_backed: Whether the server is volume backed or not.
-                          If this is true, a volume will be created and
-                          create server will be requested with
-                          'block_device_mapping_v2' populated with below
-                          values:
-                          --------------------------------------------
-                          bd_map_v2 = [{
-                              'uuid': volume['volume']['id'],
-                              'source_type': 'volume',
-                              'destination_type': 'volume',
-                              'boot_index': 0,
-                              'delete_on_termination': True}]
-                          kwargs['block_device_mapping_v2'] = bd_map_v2
-                          ---------------------------------------------
-                          If server needs to be booted from volume with other
-                          combination of bdm inputs than mentioned above, then
-                          pass the bdm inputs explicitly as kwargs and image_id
-                          as empty string ('').
+        If this is true, a volume will be created and create server will be
+        requested with 'block_device_mapping_v2' populated with below values:
+
+        .. code-block:: python
+
+            bd_map_v2 = [{
+                'uuid': volume['volume']['id'],
+                'source_type': 'volume',
+                'destination_type': 'volume',
+                'boot_index': 0,
+                'delete_on_termination': True}]
+            kwargs['block_device_mapping_v2'] = bd_map_v2
+
+        If server needs to be booted from volume with other combination of bdm
+        inputs than mentioned above, then pass the bdm inputs explicitly as
+        kwargs and image_id as empty string ('').
     :param name: Name of the server to be provisioned. If not defined a random
         string ending with '-instance' will be generated.
     :param flavor: Flavor of the server to be provisioned. If not defined,
@@ -165,15 +163,24 @@ def create_test_server(clients, validatable=False, validation_resources=None,
 
     if volume_backed:
         volume_name = data_utils.rand_name(__name__ + '-volume')
-        volumes_client = clients.volumes_v2_client
+        volumes_client = clients.volumes_client_latest
         params = {'name': volume_name,
                   'imageRef': image_id,
                   'size': CONF.volume.volume_size}
         volume = volumes_client.create_volume(**params)
-        waiters.wait_for_volume_resource_status(volumes_client,
-                                                volume['volume']['id'],
-                                                'available')
-
+        try:
+            waiters.wait_for_volume_resource_status(volumes_client,
+                                                    volume['volume']['id'],
+                                                    'available')
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                try:
+                    volumes_client.delete_volume(volume['volume']['id'])
+                    volumes_client.wait_for_resource_deletion(
+                        volume['volume']['id'])
+                except Exception as exc:
+                    LOG.exception("Deleting volume %s failed, exception %s",
+                                  volume['volume']['id'], exc)
         bd_map_v2 = [{
             'uuid': volume['volume']['id'],
             'source_type': 'volume',
@@ -229,7 +236,7 @@ def create_test_server(clients, validatable=False, validation_resources=None,
                     clients.servers_client, server['id'], wait_until)
 
                 # Multiple validatable servers are not supported for now. Their
-                # creation will fail with the condition above (l.58).
+                # creation will fail with the condition above.
                 if CONF.validation.run_validation and validatable:
                     if CONF.validation.connect_method == 'floating':
                         _setup_validation_fip()
@@ -289,13 +296,26 @@ def shelve_server(servers_client, server_id, force_shelve_offload=False):
 
 def create_websocket(url):
     url = urlparse.urlparse(url)
-    if url.scheme == 'https':
-        client_socket = ssl.wrap_socket(socket.socket(socket.AF_INET,
-                                                      socket.SOCK_STREAM))
+
+    # NOTE(mnaser): It is possible that there is no port specified, so fall
+    #               back to the default port based on the scheme.
+    port = url.port or (443 if url.scheme == 'https' else 80)
+
+    for res in socket.getaddrinfo(url.hostname, port,
+                                  socket.AF_UNSPEC, socket.SOCK_STREAM):
+        af, socktype, proto, _, sa = res
+        client_socket = socket.socket(af, socktype, proto)
+        if url.scheme == 'https':
+            client_socket = ssl.wrap_socket(client_socket)
+        client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            client_socket.connect(sa)
+        except socket.error:
+            client_socket.close()
+            continue
+        break
     else:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    client_socket.connect((url.hostname, url.port))
+        raise socket.error('WebSocket creation failed')
     # Turn the Socket into a WebSocket to do the communication
     return _WebSocket(client_socket, url)
 
@@ -374,7 +394,12 @@ class _WebSocket(object):
         """Upgrade the HTTP connection to a WebSocket and verify."""
         # The real request goes to the /websockify URI always
         reqdata = 'GET /websockify HTTP/1.1\r\n'
-        reqdata += 'Host: %s:%s\r\n' % (url.hostname, url.port)
+        reqdata += 'Host: %s' % url.hostname
+        # Add port only if we have one specified
+        if url.port:
+            reqdata += ':%s' % url.port
+        # Line-ending for Host header
+        reqdata += '\r\n'
         # Tell the HTTP Server to Upgrade the connection to a WebSocket
         reqdata += 'Upgrade: websocket\r\nConnection: Upgrade\r\n'
         # The token=xxx is sent as a Cookie not in the URI

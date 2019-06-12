@@ -13,22 +13,24 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import socket
-
 from tempest.api.network import base
-from tempest import config
+from tempest.lib.common.utils import test_utils
 from tempest.lib import decorators
-
-CONF = config.CONF
 
 
 class PortsAdminExtendedAttrsTestJSON(base.BaseAdminNetworkTest):
 
     @classmethod
+    def setup_clients(cls):
+        super(PortsAdminExtendedAttrsTestJSON, cls).setup_clients()
+        cls.hyper_client = cls.os_admin.hypervisor_client
+
+    @classmethod
     def resource_setup(cls):
         super(PortsAdminExtendedAttrsTestJSON, cls).resource_setup()
         cls.network = cls.create_network()
-        cls.host_id = socket.gethostname()
+        hyper_list = cls.hyper_client.list_hypervisors()
+        cls.host_id = hyper_list['hypervisors'][0]['hypervisor_hostname']
 
     @decorators.idempotent_id('8e8569c1-9ac7-44db-8bc1-f5fb2814f29b')
     def test_create_port_binding_ext_attr(self):
@@ -36,7 +38,9 @@ class PortsAdminExtendedAttrsTestJSON(base.BaseAdminNetworkTest):
                      "binding:host_id": self.host_id}
         body = self.admin_ports_client.create_port(**post_body)
         port = body['port']
-        self.addCleanup(self.admin_ports_client.delete_port, port['id'])
+        self.addCleanup(
+            test_utils.call_and_ignore_notfound_exc,
+            self.admin_ports_client.delete_port, port['id'])
         host_id = port['binding:host_id']
         self.assertIsNotNone(host_id)
         self.assertEqual(self.host_id, host_id)
@@ -46,7 +50,9 @@ class PortsAdminExtendedAttrsTestJSON(base.BaseAdminNetworkTest):
         post_body = {"network_id": self.network['id']}
         body = self.admin_ports_client.create_port(**post_body)
         port = body['port']
-        self.addCleanup(self.admin_ports_client.delete_port, port['id'])
+        self.addCleanup(
+            test_utils.call_and_ignore_notfound_exc,
+            self.admin_ports_client.delete_port, port['id'])
         update_body = {"binding:host_id": self.host_id}
         body = self.admin_ports_client.update_port(port['id'], **update_body)
         updated_port = body['port']
@@ -60,7 +66,9 @@ class PortsAdminExtendedAttrsTestJSON(base.BaseAdminNetworkTest):
         post_body = {"network_id": self.network['id']}
         body = self.admin_ports_client.create_port(**post_body)
         port = body['port']
-        self.addCleanup(self.admin_ports_client.delete_port, port['id'])
+        self.addCleanup(
+            test_utils.call_and_ignore_notfound_exc,
+            self.admin_ports_client.delete_port, port['id'])
 
         # Update the port's binding attributes so that is now 'bound'
         # to a host
@@ -84,7 +92,8 @@ class PortsAdminExtendedAttrsTestJSON(base.BaseAdminNetworkTest):
         body = self.admin_ports_client.create_port(
             network_id=self.network['id'])
         port = body['port']
-        self.addCleanup(self.admin_ports_client.delete_port, port['id'])
+        self.addCleanup(test_utils.call_and_ignore_notfound_exc,
+                        self.admin_ports_client.delete_port, port['id'])
         body = self.admin_ports_client.show_port(port['id'])
         show_port = body['port']
         self.assertEqual(port['binding:host_id'],

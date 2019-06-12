@@ -37,7 +37,7 @@ class TestAggregatesBasicOps(manager.ScenarioTest):
         super(TestAggregatesBasicOps, cls).setup_clients()
         # Use admin client by default
         cls.aggregates_client = cls.os_admin.aggregates_client
-        cls.hosts_client = cls.os_admin.hosts_client
+        cls.services_client = cls.os_admin.services_client
 
     def _create_aggregate(self, **kwargs):
         aggregate = (self.aggregates_client.create_aggregate(**kwargs)
@@ -51,10 +51,10 @@ class TestAggregatesBasicOps(manager.ScenarioTest):
         return aggregate
 
     def _get_host_name(self):
-        hosts = self.hosts_client.list_hosts()['hosts']
-        self.assertNotEmpty(hosts)
-        computes = [x for x in hosts if x['service'] == 'compute']
-        return computes[0]['host_name']
+        svc_list = self.services_client.list_services(
+            binary='nova-compute')['services']
+        self.assertNotEmpty(svc_list)
+        return svc_list[0]['host']
 
     def _add_host(self, aggregate_id, host):
         aggregate = (self.aggregates_client.add_host(aggregate_id, host=host)

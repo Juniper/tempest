@@ -106,6 +106,8 @@ class TestAccountGeneratorV2(base.TestCase, MockHelpersMixin):
         cp = account_generator.get_credential_provider(self.opts)
         admin_creds = cp.default_admin_creds
         self.assertEqual(self.opts.os_tenant_name, admin_creds.tenant_name)
+        self.assertEqual(self.opts.os_username, admin_creds.username)
+        self.assertEqual(self.opts.os_password, admin_creds.password)
 
 
 class TestAccountGeneratorV3(TestAccountGeneratorV2):
@@ -153,17 +155,14 @@ class TestGenerateResourcesV2(base.TestCase, MockHelpersMixin):
 
     def test_generate_resources_no_admin(self):
         cfg.CONF.set_default('swift', False, group='service_available')
-        cfg.CONF.set_default('heat', False, group='service_available')
         cfg.CONF.set_default('operator_role', 'fake_operator',
                              group='object-storage')
         cfg.CONF.set_default('reseller_admin_role', 'fake_reseller',
                              group='object-storage')
-        cfg.CONF.set_default('stack_owner_role', 'fake_owner',
-                             group='orchestration')
         resources = account_generator.generate_resources(
             self.cred_provider, admin=False)
         resource_types = [k for k, _ in resources]
-        # No admin, no heat, no swift, expect two credentials only
+        # No admin, no swift, expect two credentials only
         self.assertEqual(2, len(resources))
         # Ensure create_user was invoked twice (two distinct users)
         self.assertEqual(2, self.user_create_fixture.mock.call_count)
@@ -180,17 +179,14 @@ class TestGenerateResourcesV2(base.TestCase, MockHelpersMixin):
 
     def test_generate_resources_admin(self):
         cfg.CONF.set_default('swift', False, group='service_available')
-        cfg.CONF.set_default('heat', False, group='service_available')
         cfg.CONF.set_default('operator_role', 'fake_operator',
                              group='object-storage')
         cfg.CONF.set_default('reseller_admin_role', 'fake_reseller',
                              group='object-storage')
-        cfg.CONF.set_default('stack_owner_role', 'fake_owner',
-                             group='orchestration')
         resources = account_generator.generate_resources(
             self.cred_provider, admin=True)
         resource_types = [k for k, _ in resources]
-        # Admin, no heat, no swift, expect three credentials only
+        # Admin, no swift, expect three credentials only
         self.assertEqual(3, len(resources))
         # Ensure create_user was invoked 3 times (3 distinct users)
         self.assertEqual(3, self.user_create_fixture.mock.call_count)
@@ -205,28 +201,48 @@ class TestGenerateResourcesV2(base.TestCase, MockHelpersMixin):
             self.assertIsNotNone(resource[1].router)
             self.assertIsNotNone(resource[1].subnet)
 
-    def test_generate_resources_swift_heat_admin(self):
+    def test_generate_resources_swift_admin(self):
         cfg.CONF.set_default('swift', True, group='service_available')
-        cfg.CONF.set_default('heat', True, group='service_available')
         cfg.CONF.set_default('operator_role', 'fake_operator',
                              group='object-storage')
         cfg.CONF.set_default('reseller_admin_role', 'fake_reseller',
                              group='object-storage')
-        cfg.CONF.set_default('stack_owner_role', 'fake_owner',
-                             group='orchestration')
         resources = account_generator.generate_resources(
             self.cred_provider, admin=True)
         resource_types = [k for k, _ in resources]
-        # all options on, expect six credentials
-        self.assertEqual(6, len(resources))
-        # Ensure create_user was invoked 6 times (6 distinct users)
-        self.assertEqual(6, self.user_create_fixture.mock.call_count)
+        # all options on, expect five credentials
+        self.assertEqual(5, len(resources))
+        # Ensure create_user was invoked 5 times (5 distinct users)
+        self.assertEqual(5, self.user_create_fixture.mock.call_count)
         self.assertIn('primary', resource_types)
         self.assertIn('alt', resource_types)
         self.assertIn('admin', resource_types)
         self.assertIn(['fake_operator'], resource_types)
         self.assertIn(['fake_reseller'], resource_types)
-        self.assertIn(['fake_owner', 'fake_operator'], resource_types)
+        for resource in resources:
+            self.assertIsNotNone(resource[1].network)
+            self.assertIsNotNone(resource[1].router)
+            self.assertIsNotNone(resource[1].subnet)
+
+    def test_generate_resources_swift_no_admin(self):
+        cfg.CONF.set_default('swift', True, group='service_available')
+        cfg.CONF.set_default('operator_role', 'fake_operator',
+                             group='object-storage')
+        cfg.CONF.set_default('reseller_admin_role', 'fake_reseller',
+                             group='object-storage')
+        resources = account_generator.generate_resources(
+            self.cred_provider, admin=False)
+        resource_types = [k for k, _ in resources]
+        # No Admin, swift, expect four credentials only
+        self.assertEqual(4, len(resources))
+        # Ensure create_user was invoked 4 times (4 distinct users)
+        self.assertEqual(4, self.user_create_fixture.mock.call_count)
+        self.assertIn('primary', resource_types)
+        self.assertIn('alt', resource_types)
+        self.assertNotIn('admin', resource_types)
+        self.assertIn(['fake_operator'], resource_types)
+        self.assertIn(['fake_reseller'], resource_types)
+        self.assertNotIn(['fake_owner'], resource_types)
         for resource in resources:
             self.assertIsNotNone(resource[1].network)
             self.assertIsNotNone(resource[1].router)
@@ -258,7 +274,6 @@ class TestDumpAccountsV2(base.TestCase, MockHelpersMixin):
             self.opts)
         self.mock_resource_creation()
         cfg.CONF.set_default('swift', True, group='service_available')
-        cfg.CONF.set_default('heat', True, group='service_available')
         self.resources = account_generator.generate_resources(
             self.cred_provider, admin=True)
 
@@ -278,14 +293,14 @@ class TestDumpAccountsV2(base.TestCase, MockHelpersMixin):
         # Ordered args in [0], keyword args in [1]
         accounts, f = yaml_dump_mock.call_args[0]
         self.assertEqual(handle, f)
-        self.assertEqual(6, len(accounts))
+        self.assertEqual(5, len(accounts))
         if self.domain_is_in:
             self.assertIn('domain_name', accounts[0].keys())
         else:
             self.assertNotIn('domain_name', accounts[0].keys())
         self.assertEqual(1, len([x for x in accounts if
                                  x.get('types') == ['admin']]))
-        self.assertEqual(3, len([x for x in accounts if 'roles' in x]))
+        self.assertEqual(2, len([x for x in accounts if 'roles' in x]))
         for account in accounts:
             self.assertIn('resources', account)
             self.assertIn('network', account.get('resources'))
@@ -309,14 +324,14 @@ class TestDumpAccountsV2(base.TestCase, MockHelpersMixin):
         # Ordered args in [0], keyword args in [1]
         accounts, f = yaml_dump_mock.call_args[0]
         self.assertEqual(handle, f)
-        self.assertEqual(6, len(accounts))
+        self.assertEqual(5, len(accounts))
         if self.domain_is_in:
             self.assertIn('domain_name', accounts[0].keys())
         else:
             self.assertNotIn('domain_name', accounts[0].keys())
         self.assertEqual(1, len([x for x in accounts if
                                  x.get('types') == ['admin']]))
-        self.assertEqual(3, len([x for x in accounts if 'roles' in x]))
+        self.assertEqual(2, len([x for x in accounts if 'roles' in x]))
         for account in accounts:
             self.assertIn('resources', account)
             self.assertIn('network', account.get('resources'))

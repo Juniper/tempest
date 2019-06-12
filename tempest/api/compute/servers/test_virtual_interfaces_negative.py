@@ -20,18 +20,18 @@ from tempest.lib import decorators
 from tempest.lib import exceptions as lib_exc
 
 
+# TODO(mriedem): Remove this test class once the nova queens branch goes into
+# extended maintenance mode.
 class VirtualInterfacesNegativeTestJSON(base.BaseV2ComputeTest):
+    max_microversion = '2.43'
+
+    depends_on_nova_network = True
 
     @classmethod
     def setup_credentials(cls):
         # For this test no network resources are needed
         cls.set_network_resources()
         super(VirtualInterfacesNegativeTestJSON, cls).setup_credentials()
-
-    @classmethod
-    def setup_clients(cls):
-        super(VirtualInterfacesNegativeTestJSON, cls).setup_clients()
-        cls.client = cls.servers_client
 
     @decorators.attr(type=['negative'])
     @decorators.idempotent_id('64ebd03c-1089-4306-93fa-60f5eb5c803c')
@@ -41,5 +41,5 @@ class VirtualInterfacesNegativeTestJSON(base.BaseV2ComputeTest):
         # for an invalid server_id
         invalid_server_id = data_utils.rand_uuid()
         self.assertRaises(lib_exc.NotFound,
-                          self.client.list_virtual_interfaces,
+                          self.servers_client.list_virtual_interfaces,
                           invalid_server_id)

@@ -1,4 +1,3 @@
-
 # Copyright 2013 IBM Corp.
 # All Rights Reserved.
 #
@@ -21,6 +20,10 @@ from tempest.lib import exceptions as lib_exc
 
 
 class EndpointsNegativeTestJSON(base.BaseIdentityV3AdminTest):
+    # NOTE: force_tenant_isolation is true in the base class by default but
+    # overridden to false here to allow test execution for clouds using the
+    # pre-provisioned credentials provider.
+    force_tenant_isolation = False
 
     @classmethod
     def setup_clients(cls):
@@ -30,7 +33,6 @@ class EndpointsNegativeTestJSON(base.BaseIdentityV3AdminTest):
     @classmethod
     def resource_setup(cls):
         super(EndpointsNegativeTestJSON, cls).resource_setup()
-        cls.service_ids = list()
         s_name = data_utils.rand_name('service')
         s_type = data_utils.rand_name('type')
         s_description = data_utils.rand_name('description')
@@ -38,14 +40,10 @@ class EndpointsNegativeTestJSON(base.BaseIdentityV3AdminTest):
             cls.services_client.create_service(name=s_name, type=s_type,
                                                description=s_description)
             ['service'])
-        cls.service_id = service_data['id']
-        cls.service_ids.append(cls.service_id)
+        cls.addClassResourceCleanup(cls.services_client.delete_service,
+                                    service_data['id'])
 
-    @classmethod
-    def resource_cleanup(cls):
-        for s in cls.service_ids:
-            cls.services_client.delete_service(s)
-        super(EndpointsNegativeTestJSON, cls).resource_cleanup()
+        cls.service_id = service_data['id']
 
     @decorators.attr(type=['negative'])
     @decorators.idempotent_id('ac6c137e-4d3d-448f-8c83-4f13d0942651')

@@ -84,8 +84,7 @@ class AutoAllocateNetworkTest(base.BaseV2ComputeTest):
         nets = cls.networks_client.list_networks(
             **search_opts).get('networks', [])
         if nets:
-            raise lib_excs.TempestException(
-                'Found shared networks: %s' % nets)
+            raise cls.skipException('Found shared networks: %s' % nets)
 
     @classmethod
     def resource_cleanup(cls):
@@ -149,9 +148,7 @@ class AutoAllocateNetworkTest(base.BaseV2ComputeTest):
     def test_server_create_no_allocate(self):
         """Tests that no networking is allocated for the server."""
         # create the server with no networking
-        server, _ = compute.create_test_server(
-            self.os_primary, networks='none', wait_until='ACTIVE')
-        self.addCleanup(self.delete_server, server['id'])
+        server = self.create_test_server(networks='none', wait_until='ACTIVE')
         # get the server ips
         addresses = self.servers_client.list_addresses(
             server['id'])['addresses']

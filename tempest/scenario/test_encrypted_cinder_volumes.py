@@ -29,11 +29,12 @@ class TestEncryptedCinderVolumes(manager.EncryptionScenarioTest):
 
     For both LUKS and cryptsetup encryption types, this test performs
     the following:
-        * Creates an image in Glance
-        * Boots an instance from the image
-        * Creates an encryption type (as admin)
-        * Creates a volume of that encryption type (as a regular user)
-        * Attaches and detaches the encrypted volume to the instance
+
+    * Creates an image in Glance
+    * Boots an instance from the image
+    * Creates an encryption type (as admin)
+    * Creates a volume of that encryption type (as a regular user)
+    * Attaches and detaches the encrypted volume to the instance
     """
 
     @classmethod
@@ -57,8 +58,7 @@ class TestEncryptedCinderVolumes(manager.EncryptionScenarioTest):
     @utils.services('compute', 'volume', 'image')
     def test_encrypted_cinder_volumes_luks(self):
         server = self.launch_instance()
-        volume = self.create_encrypted_volume('nova.volume.encryptors.'
-                                              'luks.LuksEncryptor',
+        volume = self.create_encrypted_volume('luks',
                                               volume_type='luks')
         self.attach_detach_volume(server, volume)
 
@@ -67,7 +67,6 @@ class TestEncryptedCinderVolumes(manager.EncryptionScenarioTest):
     @utils.services('compute', 'volume', 'image')
     def test_encrypted_cinder_volumes_cryptsetup(self):
         server = self.launch_instance()
-        volume = self.create_encrypted_volume('nova.volume.encryptors.'
-                                              'cryptsetup.CryptsetupEncryptor',
+        volume = self.create_encrypted_volume('plain',
                                               volume_type='cryptsetup')
         self.attach_detach_volume(server, volume)

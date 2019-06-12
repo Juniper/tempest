@@ -4,7 +4,7 @@ Tempest Test Writing Guide
 ##########################
 
 This guide serves as a starting point for developers working on writing new
-Tempest tests. At a high level tests in Tempest are just tests that conform to
+Tempest tests. At a high level, tests in Tempest are just tests that conform to
 the standard python `unit test`_ framework. But there are several aspects of
 that are unique to Tempest and its role as an integration test suite running
 against a real cloud.
@@ -36,12 +36,12 @@ methods.
 In standard unittest the lifecycle of a TestCase can be described in the
 following phases:
 
- #. setUpClass
- #. setUp
- #. Test Execution
- #. tearDown
- #. doCleanups
- #. tearDownClass
+#. setUpClass
+#. setUp
+#. Test Execution
+#. tearDown
+#. doCleanups
+#. tearDownClass
 
 setUpClass
 ----------
@@ -54,18 +54,18 @@ setup for interacting with the configured cloud.
 To accomplish this you do **not** define a setUpClass function, instead there
 are a number of predefined phases to setUpClass that are used. The phases are:
 
- * skip_checks
- * setup_credentials
- * setup_clients
- * resource_setup
+* skip_checks
+* setup_credentials
+* setup_clients
+* resource_setup
 
 which is executed in that order. Cleanup of resources provisioned during
 the resource_setup must be scheduled right after provisioning using
-the addClassResourceCleanp helper. The resource cleanups stacked this way
+the addClassResourceCleanup helper. The resource cleanups stacked this way
 are executed in reverse order during tearDownClass, before the cleanup of
 test credentials takes place. An example of a TestCase which defines all
 of these would be::
-  
+
   from tempest.common import waiters
   from tempest import config
   from tempest.lib.common.utils import test_utils

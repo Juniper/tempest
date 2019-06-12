@@ -27,16 +27,17 @@ class AggregatesAdminNegativeTestJSON(base.BaseV2ComputeAdminTest):
     def setup_clients(cls):
         super(AggregatesAdminNegativeTestJSON, cls).setup_clients()
         cls.client = cls.os_admin.aggregates_client
+        cls.services_client = cls.os_admin.services_client
 
     @classmethod
     def resource_setup(cls):
         super(AggregatesAdminNegativeTestJSON, cls).resource_setup()
         cls.aggregate_name_prefix = 'test_aggregate'
 
-        hosts_all = cls.os_admin.hosts_client.list_hosts()['hosts']
-        hosts = ([host['host_name']
-                 for host in hosts_all if host['service'] == 'compute'])
-        cls.host = hosts[0]
+        svc_list = cls.services_client.list_services(
+            binary='nova-compute')['services']
+        cls.hosts = [v['host'] for v in svc_list
+                     if v['status'] == 'enabled' and v['state'] == 'up']
 
     def _create_test_aggregate(self):
         aggregate_name = data_utils.rand_name(self.aggregate_name_prefix)
@@ -123,11 +124,9 @@ class AggregatesAdminNegativeTestJSON(base.BaseV2ComputeAdminTest):
     @decorators.idempotent_id('0ef07828-12b4-45ba-87cc-41425faf5711')
     def test_aggregate_add_non_exist_host(self):
         # Adding a non-exist host to an aggregate should raise exceptions.
-        hosts_all = self.os_admin.hosts_client.list_hosts()['hosts']
-        hosts = map(lambda x: x['host_name'], hosts_all)
         while True:
             non_exist_host = data_utils.rand_name('nonexist_host')
-            if non_exist_host not in hosts:
+            if non_exist_host not in self.hosts:
                 break
         aggregate = self._create_test_aggregate()
         self.assertRaises(lib_exc.NotFound, self.client.add_host,
@@ -140,7 +139,7 @@ class AggregatesAdminNegativeTestJSON(base.BaseV2ComputeAdminTest):
         aggregate = self._create_test_aggregate()
         self.assertRaises(lib_exc.Forbidden,
                           self.aggregates_client.add_host,
-                          aggregate['id'], host=self.host)
+                          aggregate['id'], host=self.hosts[0])
 
     @decorators.attr(type=['negative'])
     @decorators.idempotent_id('19dd44e1-c435-4ee1-a402-88c4f90b5950')
@@ -148,12 +147,12 @@ class AggregatesAdminNegativeTestJSON(base.BaseV2ComputeAdminTest):
         self.useFixture(fixtures.LockFixture('availability_zone'))
         aggregate = self._create_test_aggregate()
 
-        self.client.add_host(aggregate['id'], host=self.host)
+        self.client.add_host(aggregate['id'], host=self.hosts[0])
         self.addCleanup(self.client.remove_host, aggregate['id'],
-                        host=self.host)
+                        host=self.hosts[0])
 
         self.assertRaises(lib_exc.Conflict, self.client.add_host,
-                          aggregate['id'], host=self.host)
+                          aggregate['id'], host=self.hosts[0])
 
     @decorators.attr(type=['negative'])
     @decorators.idempotent_id('7a53af20-137a-4e44-a4ae-e19260e626d9')
@@ -162,13 +161,13 @@ class AggregatesAdminNegativeTestJSON(base.BaseV2ComputeAdminTest):
         self.useFixture(fixtures.LockFixture('availability_zone'))
         aggregate = self._create_test_aggregate()
 
-        self.client.add_host(aggregate['id'], host=self.host)
+        self.client.add_host(aggregate['id'], host=self.hosts[0])
         self.addCleanup(self.client.remove_host, aggregate['id'],
-                        host=self.host)
+                        host=self.hosts[0])
 
         self.assertRaises(lib_exc.Forbidden,
                           self.aggregates_client.remove_host,
-                          aggregate['id'], host=self.host)
+                          aggregate['id'], host=self.hosts[0])
 
     @decorators.attr(type=['negative'])
     @decorators.idempotent_id('95d6a6fa-8da9-4426-84d0-eec0329f2e4d')

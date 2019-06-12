@@ -28,6 +28,7 @@ from tempest.common import credentials_factory as credentials
 from tempest.common import utils
 from tempest import config
 from tempest.lib.common import fixed_network
+from tempest.lib.common import profiler
 from tempest.lib.common import validation_resources as vr
 from tempest.lib import decorators
 from tempest.lib import exceptions as lib_exc
@@ -68,9 +69,9 @@ at_exit_set = set()
 def validate_tearDownClass():
     if at_exit_set:
         LOG.error(
-            "tearDownClass does not call the super's "
-            "tearDownClass in these classes: \n"
-            + str(at_exit_set))
+            "tearDownClass does not call the super's tearDownClass in "
+            "these classes:\n"
+            "  %s", at_exit_set)
 
 
 atexit.register(validate_tearDownClass)
@@ -231,6 +232,9 @@ class BaseTestCase(testtools.testcase.WithAttributes,
         if CONF.pause_teardown:
             BaseTestCase.insert_pdb_breakpoint()
 
+        if CONF.profiler.key:
+            profiler.disable()
+
     @classmethod
     def insert_pdb_breakpoint(cls):
         """Add pdb breakpoint.
@@ -259,6 +263,7 @@ class BaseTestCase(testtools.testcase.WithAttributes,
         based on the result of an API call are discouraged.
 
         The following checks are implemented in `test.py` already:
+
         - check that alt credentials are available when requested by the test
         - check that admin credentials are available when requested by the test
         - check that the identity version specified by the test is marked as
@@ -310,6 +315,7 @@ class BaseTestCase(testtools.testcase.WithAttributes,
         `os_[type]`:
 
         Valid values in `credentials` are:
+
         - 'primary':
             A normal user is provisioned.
             It can be used only once. Multiple entries will be ignored.
@@ -581,9 +587,9 @@ class BaseTestCase(testtools.testcase.WithAttributes,
     def setUp(self):
         super(BaseTestCase, self).setUp()
         if not self.__setupclass_called:
-            raise RuntimeError("setUpClass does not calls the super's"
-                               "setUpClass in the "
-                               + self.__class__.__name__)
+            raise RuntimeError("setUpClass does not calls the super's "
+                               "setUpClass in the " +
+                               self.__class__.__name__)
         at_exit_set.add(self.__class__)
         test_timeout = os.environ.get('OS_TEST_TIMEOUT', 0)
         try:
@@ -602,10 +608,12 @@ class BaseTestCase(testtools.testcase.WithAttributes,
             stderr = self.useFixture(fixtures.StringStream('stderr')).stream
             self.useFixture(fixtures.MonkeyPatch('sys.stderr', stderr))
         if (os.environ.get('OS_LOG_CAPTURE') != 'False' and
-            os.environ.get('OS_LOG_CAPTURE') != '0'):
+                os.environ.get('OS_LOG_CAPTURE') != '0'):
             self.useFixture(fixtures.LoggerFixture(nuke_handlers=False,
                                                    format=self.log_format,
                                                    level=None))
+        if CONF.profiler.key:
+            profiler.enable(CONF.profiler.key)
 
     @property
     def credentials_provider(self):
@@ -836,7 +844,7 @@ class BaseTestCase(testtools.testcase.WithAttributes,
             manager = cls.get_client_manager()
 
         # Make sure cred_provider exists and get a network client
-        networks_client = manager.compute_networks_client
+        networks_client = manager.networks_client
         cred_provider = cls._get_credentials_provider()
         # In case of nova network, isolated tenants are not able to list the
         # network configured in fixed_network_name, even if they can use it

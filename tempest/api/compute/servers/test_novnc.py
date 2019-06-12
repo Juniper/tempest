@@ -44,10 +44,13 @@ class NoVNCConsoleTestJSON(base.BaseV2ComputeTest):
         self._websocket = None
 
     def tearDown(self):
-        self.server_check_teardown()
         super(NoVNCConsoleTestJSON, self).tearDown()
         if self._websocket is not None:
             self._websocket.close()
+        # NOTE(zhufl): Because server_check_teardown will raise Exception
+        # which will prevent other cleanup steps from being executed, so
+        # server_check_teardown should be called after super's tearDown.
+        self.server_check_teardown()
 
     @classmethod
     def setup_clients(cls):
@@ -58,6 +61,9 @@ class NoVNCConsoleTestJSON(base.BaseV2ComputeTest):
     def resource_setup(cls):
         super(NoVNCConsoleTestJSON, cls).resource_setup()
         cls.server = cls.create_test_server(wait_until="ACTIVE")
+        cls.use_get_remote_console = False
+        if not cls.is_requested_microversion_compatible('2.5'):
+            cls.use_get_remote_console = True
 
     def _validate_novnc_html(self, vnc_url):
         """Verify we can connect to novnc and get back the javascript."""
@@ -137,7 +143,7 @@ class NoVNCConsoleTestJSON(base.BaseV2ComputeTest):
         data_length = len(data) if data is not None else 0
         self.assertFalse(data_length <= 24 or
                          data_length != (struct.unpack(">L",
-                                         data[20:24])[0] + 24),
+                                                       data[20:24])[0] + 24),
                          'Server initialization was not the right format.')
         # Since the rest of the data on the screen is arbitrary, we will
         # close the socket and end our validation of the data at this point
@@ -145,22 +151,38 @@ class NoVNCConsoleTestJSON(base.BaseV2ComputeTest):
         # initialization was the right format
         self.assertFalse(data_length <= 24 or
                          data_length != (struct.unpack(">L",
-                                         data[20:24])[0] + 24))
+                                                       data[20:24])[0] + 24))
 
     def _validate_websocket_upgrade(self):
         self.assertTrue(
             self._websocket.response.startswith(b'HTTP/1.1 101 Switching '
                                                 b'Protocols\r\n'),
-            'Did not get the expected 101 on the websockify call: '
-            + six.text_type(self._websocket.response))
-        self.assertTrue(
-            self._websocket.response.find(b'Server: WebSockify') > 0,
-            'Did not get the expected WebSocket HTTP Response.')
+            'Did not get the expected 101 on the {} call: {}'.format(
+                CONF.compute_feature_enabled.vnc_server_header,
+                six.text_type(self._websocket.response)
+            )
+        )
+        # Since every other server type returns Headers with different case
+        # (for example 'nginx'), lowercase must be applied to eliminate issues.
+        _desired_header = "server: {0}".format(
+            CONF.compute_feature_enabled.vnc_server_header
+        ).lower()
+        _response = six.text_type(self._websocket.response).lower()
+        self.assertIn(
+            _desired_header,
+            _response,
+            'Did not get the expected WebSocket HTTP Response.'
+        )
 
     @decorators.idempotent_id('c640fdff-8ab4-45a4-a5d8-7e6146cbd0dc')
     def test_novnc(self):
-        body = self.client.get_vnc_console(self.server['id'],
-                                           type='novnc')['console']
+        if self.use_get_remote_console:
+            body = self.client.get_remote_console(
+                self.server['id'], console_type='novnc',
+                protocol='vnc')['remote_console']
+        else:
+            body = self.client.get_vnc_console(self.server['id'],
+                                               type='novnc')['console']
         self.assertEqual('novnc', body['type'])
         # Do the initial HTTP Request to novncproxy to get the NoVNC JavaScript
         self._validate_novnc_html(body['url'])
@@ -173,8 +195,13 @@ class NoVNCConsoleTestJSON(base.BaseV2ComputeTest):
 
     @decorators.idempotent_id('f9c79937-addc-4aaa-9e0e-841eef02aeb7')
     def test_novnc_bad_token(self):
-        body = self.client.get_vnc_console(self.server['id'],
-                                           type='novnc')['console']
+        if self.use_get_remote_console:
+            body = self.client.get_remote_console(
+                self.server['id'], console_type='novnc',
+                protocol='vnc')['remote_console']
+        else:
+            body = self.client.get_vnc_console(self.server['id'],
+                                               type='novnc')['console']
         self.assertEqual('novnc', body['type'])
         # Do the WebSockify HTTP Request to novncproxy with a bad token
         url = body['url'].replace('token=', 'token=bad')

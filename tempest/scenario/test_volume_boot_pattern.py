@@ -11,6 +11,7 @@
 #    under the License.
 
 from oslo_log import log as logging
+from oslo_serialization import jsonutils as json
 import testtools
 
 from tempest.common import utils
@@ -29,12 +30,6 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
     # Boot from volume scenario is quite slow, and needs extra
     # breathing room to get through deletes in the time allotted.
     TIMEOUT_SCALING_FACTOR = 2
-
-    @classmethod
-    def skip_checks(cls):
-        super(TestVolumeBootPattern, cls).skip_checks()
-        if not CONF.volume_feature_enabled.snapshot:
-            raise cls.skipException("Cinder volume snapshots are disabled")
 
     def _create_volume_from_image(self):
         img_uuid = CONF.compute.image_ref
@@ -55,7 +50,8 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
                                      source_type,
                                      keypair=None,
                                      security_group=None,
-                                     delete_on_termination=False):
+                                     delete_on_termination=False,
+                                     name=None):
         create_kwargs = dict()
         if keypair:
             create_kwargs['key_name'] = keypair['name']
@@ -66,6 +62,8 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
             source_id,
             source_type,
             delete_on_termination=delete_on_termination))
+        if name:
+            create_kwargs['name'] = name
 
         return self.create_server(image_id='', **create_kwargs)
 
@@ -73,12 +71,21 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
         self.servers_client.delete_server(server['id'])
         waiters.wait_for_server_termination(self.servers_client, server['id'])
 
+    def _delete_snapshot(self, snapshot_id):
+        self.snapshots_client.delete_snapshot(snapshot_id)
+        self.snapshots_client.wait_for_resource_deletion(snapshot_id)
+
     @decorators.idempotent_id('557cd2c2-4eb8-4dce-98be-f86765ff311b')
+    @decorators.attr(type='slow')
+    # Note: This test is being skipped based on 'public_network_id'.
+    # It is being used in create_floating_ip() method which gets called
+    # from get_server_ip() method
     @testtools.skipUnless(CONF.network.public_network_id,
                           'The public_network_id option must be specified.')
+    @testtools.skipUnless(CONF.volume_feature_enabled.snapshot,
+                          'Cinder volume snapshots are disabled')
     @utils.services('compute', 'volume', 'image')
     def test_volume_boot_pattern(self):
-
         """This test case attempts to reproduce the following steps:
 
         * Create in Cinder some bootable volume importing a Glance image
@@ -109,7 +116,8 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
         LOG.info("Setting timestamp in instance %s", instance_1st)
         ip_instance_1st = self.get_server_ip(instance_1st)
         timestamp = self.create_timestamp(ip_instance_1st,
-                                          private_key=keypair['private_key'])
+                                          private_key=keypair['private_key'],
+                                          server=instance_1st)
 
         # delete instance
         LOG.info("Deleting first instance: %s", instance_1st)
@@ -127,7 +135,8 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
         LOG.info("Getting timestamp in instance %s", instance_2nd)
         ip_instance_2nd = self.get_server_ip(instance_2nd)
         timestamp2 = self.get_timestamp(ip_instance_2nd,
-                                        private_key=keypair['private_key'])
+                                        private_key=keypair['private_key'],
+                                        server=instance_2nd)
         self.assertEqual(timestamp, timestamp2)
 
         # snapshot a volume
@@ -151,11 +160,14 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
                  server_from_snapshot)
         server_from_snapshot_ip = self.get_server_ip(server_from_snapshot)
         timestamp3 = self.get_timestamp(server_from_snapshot_ip,
-                                        private_key=keypair['private_key'])
+                                        private_key=keypair['private_key'],
+                                        server=server_from_snapshot)
         self.assertEqual(timestamp, timestamp3)
 
     @decorators.idempotent_id('05795fb2-b2a7-4c9f-8fac-ff25aedb1489')
     @decorators.attr(type='slow')
+    @testtools.skipUnless(CONF.volume_feature_enabled.snapshot,
+                          'Cinder volume snapshots are disabled')
     @utils.services('compute', 'image', 'volume')
     def test_create_server_from_volume_snapshot(self):
         # Create a volume from an image
@@ -192,26 +204,76 @@ class TestVolumeBootPattern(manager.EncryptionScenarioTest):
                          created_volume_info['attachments'][0]['volume_id'])
 
     @decorators.idempotent_id('36c34c67-7b54-4b59-b188-02a2f458a63b')
+    @testtools.skipUnless(CONF.volume_feature_enabled.snapshot,
+                          'Cinder volume snapshots are disabled')
     @utils.services('compute', 'volume', 'image')
-    def test_create_ebs_image_and_check_boot(self):
-        # create an instance from volume
+    def test_image_defined_boot_from_volume(self):
+        # create an instance from image-backed volume
         volume_origin = self._create_volume_from_image()
-        instance = self._boot_instance_from_resource(
+        name = data_utils.rand_name(self.__class__.__name__ +
+                                    '-volume-backed-server')
+        instance1 = self._boot_instance_from_resource(
             source_id=volume_origin['id'],
             source_type='volume',
-            delete_on_termination=True)
-        # create EBS image
-        image = self.create_server_snapshot(instance)
+            delete_on_termination=True,
+            name=name)
+        # Create a snapshot image from the volume-backed server.
+        # The compute service will have the block service create a snapshot of
+        # the root volume and store its metadata in the image.
+        image = self.create_server_snapshot(instance1)
 
-        # delete instance
-        self._delete_server(instance)
+        # Create a server from the image snapshot which has an
+        # "image-defined block device mapping (BDM)" in it, i.e. the metadata
+        # about the volume snapshot. The compute service will use this to
+        # create a volume from the volume snapshot and use that as the root
+        # disk for the server.
+        name = data_utils.rand_name(self.__class__.__name__ +
+                                    '-image-snapshot-server')
+        instance2 = self.create_server(image_id=image['id'], name=name)
 
-        # boot instance from EBS image
-        instance = self.create_server(image_id=image['id'])
-        # just ensure that instance booted
+        # Verify the server was created from the image-defined BDM.
+        volume_attachments = instance2['os-extended-volumes:volumes_attached']
+        self.assertEqual(1, len(volume_attachments),
+                         "No volume attachment found.")
+        created_volume = self.volumes_client.show_volume(
+            volume_attachments[0]['id'])['volume']
+        # Assert that the volume service also shows the server attachment.
+        self.assertEqual(1, len(created_volume['attachments']),
+                         "No server attachment found for volume: %s" %
+                         created_volume)
+        self.assertEqual(instance2['id'],
+                         created_volume['attachments'][0]['server_id'])
+        self.assertEqual(volume_attachments[0]['id'],
+                         created_volume['attachments'][0]['volume_id'])
+        self.assertEqual(
+            volume_origin['volume_image_metadata']['image_id'],
+            created_volume['volume_image_metadata']['image_id'])
 
-        # delete instance
-        self._delete_server(instance)
+        # Delete the second server which should also delete the second volume
+        # created from the volume snapshot.
+        self._delete_server(instance2)
+
+        # Assert that the underlying volume is gone.
+        self.volumes_client.wait_for_resource_deletion(created_volume['id'])
+
+        # Delete the volume snapshot. We must do this before deleting the first
+        # server created in this test because the snapshot depends on the first
+        # instance's underlying volume (volume_origin).
+        # In glance v2, the image properties are flattened and in glance v1,
+        # the image properties are under the 'properties' key.
+        bdms = image.get('block_device_mapping')
+        if not bdms:
+            bdms = image['properties']['block_device_mapping']
+        bdms = json.loads(bdms)
+        snapshot_id = bdms[0]['snapshot_id']
+        self._delete_snapshot(snapshot_id)
+
+        # Now, delete the first server which will also delete the first
+        # image-backed volume.
+        self._delete_server(instance1)
+
+        # Assert that the underlying volume is gone.
+        self.volumes_client.wait_for_resource_deletion(volume_origin['id'])
 
     @decorators.idempotent_id('cb78919a-e553-4bab-b73b-10cf4d2eb125')
     @testtools.skipUnless(CONF.compute_feature_enabled.attach_encrypted_volume,

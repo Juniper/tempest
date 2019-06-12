@@ -18,6 +18,7 @@ import time
 import testtools
 
 from tempest.api.volume import base
+from tempest.common import utils
 from tempest.common import waiters
 from tempest import config
 from tempest.lib import decorators
@@ -31,8 +32,8 @@ class VolumesExtendTest(base.BaseVolumeTest):
     @decorators.idempotent_id('9a36df71-a257-43a5-9555-dc7c88e66e0e')
     def test_volume_extend(self):
         # Extend Volume Test.
-        volume = self.create_volume()
-        extend_size = volume['size'] + 1
+        volume = self.create_volume(imageRef=self.image_ref)
+        extend_size = volume['size'] * 2
         self.volumes_client.extend_volume(volume['id'],
                                           new_size=extend_size)
         waiters.wait_for_volume_resource_status(self.volumes_client,
@@ -43,12 +44,11 @@ class VolumesExtendTest(base.BaseVolumeTest):
     @decorators.idempotent_id('86be1cba-2640-11e5-9c82-635fb964c912')
     @testtools.skipUnless(CONF.volume_feature_enabled.snapshot,
                           "Cinder volume snapshots are disabled")
-    @decorators.skip_because(bug='1687044')
     def test_volume_extend_when_volume_has_snapshot(self):
         volume = self.create_volume()
         self.create_snapshot(volume['id'])
 
-        extend_size = volume['size'] + 1
+        extend_size = volume['size'] * 2
         self.volumes_client.extend_volume(volume['id'], new_size=extend_size)
 
         waiters.wait_for_volume_resource_status(self.volumes_client,
@@ -79,11 +79,6 @@ class VolumesExtendAttachedTest(base.BaseVolumeTest):
     # is implicit - Cinder calls Nova at that microversion, Tempest does not.
     min_microversion = '3.42'
 
-    @classmethod
-    def setup_clients(cls):
-        super(VolumesExtendAttachedTest, cls).setup_clients()
-        cls.admin_servers_client = cls.os_admin.servers_client
-
     def _find_extend_volume_instance_action(self, server_id):
         actions = self.servers_client.list_instance_actions(
             server_id)['instanceActions']
@@ -94,7 +89,7 @@ class VolumesExtendAttachedTest(base.BaseVolumeTest):
     def _find_extend_volume_instance_action_finish_event(self, action):
         # This has to be called by an admin client otherwise
         # the events don't show up.
-        action = self.admin_servers_client.show_instance_action(
+        action = self.os_admin.servers_client.show_instance_action(
             action['instance_uuid'], action['request_id'])['instanceAction']
         for event in action['events']:
             if (event['event'] == 'compute_extend_volume' and
@@ -104,6 +99,7 @@ class VolumesExtendAttachedTest(base.BaseVolumeTest):
     @decorators.idempotent_id('301f5a30-1c6f-4ea0-be1a-91fd28d44354')
     @testtools.skipUnless(CONF.volume_feature_enabled.extend_attached_volume,
                           "Attached volume extend is disabled.")
+    @utils.services('compute')
     def test_extend_attached_volume(self):
         """This is a happy path test which does the following:
 

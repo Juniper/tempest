@@ -19,24 +19,24 @@
 #
 # In order to function correctly, the environment in which the
 # script runs must have
-#   * network access to the review.openstack.org Gerrit API
+#   * network access to the review.opendev.org Gerrit API
 #     working directory
-#   * network access to https://git.openstack.org/cgit
+#   * network access to https://opendev.org/openstack
 
 import json
 import re
 
 try:
     # For Python 3.0 and later
-    from urllib.error import HTTPError as HTTPError
+    from urllib.error import HTTPError
     import urllib.request as urllib
 except ImportError:
     # Fall back to Python 2's urllib2
     import urllib2 as urllib
-    from urllib2 import HTTPError as HTTPError
+    from urllib2 import HTTPError
 
 
-url = 'https://review.openstack.org/projects/'
+url = 'https://review.opendev.org/projects/'
 
 # This is what a project looks like
 '''
@@ -59,27 +59,32 @@ def is_in_openstack_namespace(proj):
 def has_tempest_plugin(proj):
     try:
         r = urllib.urlopen(
-            "https://git.openstack.org/cgit/%s/plain/setup.cfg" % proj)
+            "https://opendev.org/%s/raw/branch/"
+            "master/setup.cfg" % proj)
     except HTTPError as err:
         if err.code == 404:
             return False
-    p = re.compile('^tempest\.test_plugins', re.M)
+    p = re.compile(r'^tempest\.test_plugins', re.M)
     if p.findall(r.read().decode('utf-8')):
         return True
     else:
         False
 
+
 r = urllib.urlopen(url)
 # Gerrit prepends 4 garbage octets to the JSON, in order to counter
 # cross-site scripting attacks.  Therefore we must discard it so the
 # json library won't choke.
-projects = sorted(filter(is_in_openstack_namespace, json.loads(r.read()[4:])))
+content = r.read().decode('utf-8')[4:]
+projects = sorted(filter(is_in_openstack_namespace, json.loads(content)))
 
-# Retrieve projects having no deb, ui or spec namespace as those namespaces
-# do not contains tempest plugins.
-projects_list = [i for i in projects if not (i.startswith('openstack/deb-') or
-                                             i.endswith('-ui') or
-                                             i.endswith('-specs'))]
+# Retrieve projects having no deb, puppet, ui or spec namespace as those
+# namespaces do not contains tempest plugins.
+projects_list = [i for i in projects if not (
+    i.startswith('openstack/deb-') or
+    i.startswith('openstack/puppet-') or
+    i.endswith('-ui') or
+    i.endswith('-specs'))]
 
 found_plugins = list(filter(has_tempest_plugin, projects_list))
 

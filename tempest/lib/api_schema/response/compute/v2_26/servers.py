@@ -15,7 +15,6 @@
 
 import copy
 
-from tempest.lib.api_schema.response.compute.v2_1 import servers as servers21
 from tempest.lib.api_schema.response.compute.v2_19 import servers as servers219
 
 # The 2.26 microversion changes the server GET and (detailed) LIST responses to
@@ -43,9 +42,24 @@ list_servers_detail['response_body']['properties']['servers']['items'][
 list_servers_detail['response_body']['properties']['servers']['items'][
     'required'].append('tags')
 
-# list response schema wasn't changed for v2.26 so use v2.1
+update_server = copy.deepcopy(servers219.update_server)
+update_server['response_body']['properties']['server'][
+    'properties'].update({'tags': tag_items})
+update_server['response_body']['properties']['server'][
+    'required'].append('tags')
 
-list_servers = copy.deepcopy(servers21.list_servers)
+rebuild_server = copy.deepcopy(servers219.rebuild_server)
+rebuild_server['response_body']['properties']['server'][
+    'properties'].update({'tags': tag_items})
+rebuild_server['response_body']['properties']['server'][
+    'required'].append('tags')
+
+rebuild_server_with_admin_pass = copy.deepcopy(
+    servers219.rebuild_server_with_admin_pass)
+rebuild_server_with_admin_pass['response_body']['properties']['server'][
+    'properties'].update({'tags': tag_items})
+rebuild_server_with_admin_pass['response_body']['properties']['server'][
+    'required'].append('tags')
 
 list_tags = {
     'status_code': [200],
@@ -79,3 +93,14 @@ update_tag = {
 }
 
 delete_tag = {'status_code': [204]}
+
+# NOTE(gmann): Below are the unchanged schema in this microversion. We need
+# to keep this schema in this file to have the generic way to select the
+# right schema based on self.schema_versions_info mapping in service client.
+# ****** Schemas unchanged since microversion 2.19 ******
+list_servers = copy.deepcopy(servers219.list_servers)
+show_server_diagnostics = copy.deepcopy(servers219.show_server_diagnostics)
+get_remote_consoles = copy.deepcopy(servers219.get_remote_consoles)
+attach_volume = copy.deepcopy(servers219.attach_volume)
+show_volume_attachment = copy.deepcopy(servers219.show_volume_attachment)
+list_volume_attachments = copy.deepcopy(servers219.list_volume_attachments)

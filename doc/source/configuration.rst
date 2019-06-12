@@ -17,10 +17,10 @@ Test Credentials
 Tempest allows for configuring a set of admin credentials in the ``auth``
 section, via the following parameters:
 
- #. ``admin_username``
- #. ``admin_password``
- #. ``admin_project_name``
- #. ``admin_domain_name``
+#. ``admin_username``
+#. ``admin_password``
+#. ``admin_project_name``
+#. ``admin_domain_name``
 
 Admin credentials are not mandatory to run Tempest, but when provided they
 can be used to:
@@ -47,9 +47,9 @@ In order for Tempest to be able to talk to your OpenStack deployment you need
 to provide it with information about how it communicates with keystone.
 This involves configuring the following options in the ``identity`` section:
 
- - ``auth_version``
- - ``uri``
- - ``uri_v3``
+- ``auth_version``
+- ``uri``
+- ``uri_v3``
 
 The ``auth_version`` option is used to tell Tempest whether it should be using
 Keystone's v2 or v3 api for communicating with Keystone. The two uri options are
@@ -74,12 +74,12 @@ three sets of username, password, and project names for a primary user,
 an admin user, and an alternate user. To enable and use dynamic credentials you
 only need to configure two things:
 
- #. A set of admin credentials with permissions to create users and
-    projects. This is specified in the ``auth`` section with the
-    ``admin_username``, ``admin_project_name``, ``admin_domain_name`` and
-    ``admin_password`` options
- #. To enable dynamic credentials in the ``auth`` section with the
-    ``use_dynamic_credentials`` option.
+#. A set of admin credentials with permissions to create users and
+   projects. This is specified in the ``auth`` section with the
+   ``admin_username``, ``admin_project_name``, ``admin_domain_name`` and
+   ``admin_password`` options
+#. To enable dynamic credentials in the ``auth`` section with the
+   ``use_dynamic_credentials`` option.
 
 This is also currently the default credential provider enabled by Tempest, due
 to its common use and ease of configuration.
@@ -115,21 +115,21 @@ like with dynamic credentials.
 
 To enable and use locking test accounts you need do a few things:
 
- #. Create an accounts.yaml file which contains the set of pre-existing
-    credentials to use for testing. To make sure you don't have a credentials
-    starvation issue when running in parallel make sure you have at least two
-    times the number of worker processes you are using to execute Tempest
-    available in the file. (If running serially the worker count is 1.)
+#. Create an accounts.yaml file which contains the set of pre-existing
+   credentials to use for testing. To make sure you don't have a credentials
+   starvation issue when running in parallel make sure you have at least two
+   times the number of worker processes you are using to execute Tempest
+   available in the file. (If running serially the worker count is 1.)
 
-    You can check the accounts.yaml.sample file packaged in Tempest for the yaml
-    format.
- #. Provide Tempest with the location of your accounts.yaml file with the
-    ``test_accounts_file`` option in the ``auth`` section
+   You can check the accounts.yaml.sample file packaged in Tempest for the yaml
+   format.
+#. Provide Tempest with the location of your accounts.yaml file with the
+   ``test_accounts_file`` option in the ``auth`` section
 
-    *NOTE: Be sure to use a full path for the file; otherwise Tempest will
-    likely not find it.*
+   *NOTE: Be sure to use a full path for the file; otherwise Tempest will
+   likely not find it.*
 
- #. Set ``use_dynamic_credentials = False`` in the ``auth`` group
+#. Set ``use_dynamic_credentials = False`` in the ``auth`` group
 
 It is worth pointing out that each set of credentials in the accounts.yaml
 should have a unique project. This is required to provide proper isolation
@@ -162,8 +162,8 @@ For Tempest to be able to create servers you need to specify flavors that it
 can use to boot the servers with. There are two options in the Tempest config
 for doing this:
 
- #. ``flavor_ref``
- #. ``flavor_ref_alt``
+#. ``flavor_ref``
+#. ``flavor_ref_alt``
 
 Both of these options are in the ``compute`` section of the config file and take
 in the flavor id (not the name) from Nova. The ``flavor_ref`` option is what
@@ -172,7 +172,7 @@ used in tests where two different-sized servers are required (for example, a
 resize test).
 
 Using a smaller flavor is generally recommended. When larger flavors are used,
-the extra time required to bring up servers will likely affect total run time
+the extra time required to bring up servers will likely affect the total run time
 and probably require tweaking timeout values to ensure tests have ample time to
 finish.
 
@@ -181,8 +181,8 @@ Images
 Just like with flavors, Tempest needs to know which images to use for booting
 servers. There are two options in the compute section just like with flavors:
 
- #. ``image_ref``
- #. ``image_ref_alt``
+#. ``image_ref``
+#. ``image_ref_alt``
 
 Both options are expecting an image id (not name) from Nova. The ``image_ref``
 option is what will be used for booting the majority of servers in Tempest.
@@ -192,13 +192,13 @@ those tests will be skipped.
 
 There are also options in the ``scenario`` section for images:
 
- #. ``img_file``
- #. ``img_dir``
- #. ``aki_img_file``
- #. ``ari_img_file``
- #. ``ami_img_file``
- #. ``img_container_format``
- #. ``img_disk_format``
+#. ``img_file``
+#. ``img_dir``
+#. ``aki_img_file``
+#. ``ari_img_file``
+#. ``ami_img_file``
+#. ``img_container_format``
+#. ``img_disk_format``
 
 However, unlike the other image options, these are used for a very small subset
 of scenario tests which are uploading an image. These options are used to tell
@@ -207,7 +207,7 @@ uploaded.
 
 The behavior of these options is a bit convoluted (which will likely be fixed in
 future versions). You first need to specify ``img_dir``, which is the directory
-in which Tempest will look for the image files. First it will check if the
+in which Tempest will look for the image files. First, it will check if the
 filename set for ``img_file`` could be found in ``img_dir``. If it is found then
 the ``img_container_format`` and ``img_disk_format`` options are used to upload
 that image to glance. However, if it is not found, Tempest will look for the
@@ -239,7 +239,7 @@ Network Creation/Usage for Servers
 """"""""""""""""""""""""""""""""""
 When Tempest creates servers for testing, some tests require being able to
 connect those servers. Depending on the configuration of the cloud, the methods
-for doing this can be different. In certain configurations it is required to
+for doing this can be different. In certain configurations, it is required to
 specify a single network with server create calls. Accordingly, Tempest provides
 a few different methods for providing this information in configuration to try
 and ensure that regardless of the cloud's configuration it'll still be able to
@@ -261,7 +261,7 @@ booting.
 
 To set a fixed network name simply:
 
- #. Set the ``fixed_network_name`` option in the ``compute`` group
+#. Set the ``fixed_network_name`` option in the ``compute`` group
 
 In the case that the configured fixed network name can not be found by a user
 network list call, it will be treated like one was not provided except that a
@@ -297,10 +297,10 @@ With Dynamic Credentials
 ''''''''''''''''''''''''
 With dynamic credentials enabled and using nova-network, your only option for
 configuration is to either set a fixed network name or not. However, in most
-cases it shouldn't matter because nova-network should have no problem booting a
+cases, it shouldn't matter because nova-network should have no problem booting a
 server with multiple networks. If this is not the case for your cloud then using
 an accounts file is recommended because it provides the necessary flexibility to
-describe your configuration. Dynamic credentials is not able to dynamically
+describe your configuration. Dynamic credentials are not able to dynamically
 allocate things as necessary if Neutron is not enabled.
 
 With Neutron and dynamic credentials enabled there should not be any additional
@@ -329,9 +329,9 @@ connecting to and remotely accessing the created servers.
 
 To enable remote access to servers, there are 3 options at a minimum that are used:
 
- #. ``run_validation``
- #. ``connect_method``
- #. ``auth_method``
+#. ``run_validation``
+#. ``connect_method``
+#. ``auth_method``
 
 The ``run_validation`` is used to enable or disable ssh connectivity for
 all tests (with the exception of scenario tests which do not have a flag for
@@ -352,7 +352,7 @@ Configuring Available Services
 OpenStack is really a constellation of several different projects which
 are running together to create a cloud. However which projects you're running
 is not set in stone, and which services are running is up to the deployer.
-Tempest however needs to know which services are available so it can figure
+Tempest, however, needs to know which services are available so it can figure
 out which tests it is able to run and certain setup steps which differ based
 on the available services.
 
@@ -370,9 +370,9 @@ API calls for each service, it needs to know how that project is defined in the
 service catalog. There are three options for each service section to accomplish
 this:
 
- #. ``catalog_type``
- #. ``endpoint_type``
- #. ``region``
+#. ``catalog_type``
+#. ``endpoint_type``
+#. ``region``
 
 Setting ``catalog_type`` and ``endpoint_type`` should normally give Tempest
 enough information to determine which endpoint it should pull from the service
@@ -390,8 +390,8 @@ changed.
 
 .. note::
 
-    Tempest does not serve all kinds of fancy URLs in the service catalog.  The
-    service catalog should be in a standard format (which is going to be
+    Tempest does not serve all kinds of fancy URLs in the service catalog.
+    The service catalog should be in a standard format (which is going to be
     standardized at the Keystone level).
     Tempest expects URLs in the Service catalog in the following format:
 
@@ -400,7 +400,7 @@ changed.
     Examples:
 
     * Good - ``http://example.com:1234/v2.0``
-    * Wouldn’t work -  ``http://example.com:1234/xyz/v2.0/``
+    * Wouldn't work -  ``http://example.com:1234/xyz/v2.0/``
       (adding prefix/suffix around version etc)
 
 Service Feature Configuration
@@ -413,10 +413,10 @@ message queues, etc. However, the downside to this configurability is that
 certain operations and features aren't supported depending on the configuration.
 These features may or may not be discoverable from the API so the burden is
 often on the user to figure out what is supported by the cloud they're talking
-to.  Besides the obvious interoperability issues with this it also leaves
+to. Besides the obvious interoperability issues with this, it also leaves
 Tempest in an interesting situation trying to figure out which tests are
 expected to work. However, Tempest tests do not rely on dynamic API discovery
-for a feature (assuming one exists). Instead Tempest has to be explicitly
+for a feature (assuming one exists). Instead, Tempest has to be explicitly
 configured as to which optional features are enabled. This is in order to
 prevent bugs in the discovery mechanisms from masking failures.
 
@@ -432,8 +432,8 @@ API Extensions
 ^^^^^^^^^^^^^^
 The service feature-enabled sections often contain an ``api-extensions`` option
 (or in the case of Swift a ``discoverable_apis`` option). This is used to tell
-Tempest which api extensions (or configurable middleware) is used in your
+Tempest which API extensions (or configurable middleware) is used in your
 deployment. It has two valid config states: either it contains a single value
-``all`` (which is the default) which means that every api extension is assumed
+``all`` (which is the default) which means that every API extension is assumed
 to be enabled, or it is set to a list of each individual extension that is
 enabled for that service.

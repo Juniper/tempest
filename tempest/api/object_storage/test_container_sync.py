@@ -33,8 +33,6 @@ CONF = config.CONF
 
 
 class ContainerSyncTest(base.BaseObjectTest):
-    clients = {}
-
     credentials = [['operator', CONF.object_storage.operator_role],
                    ['operator_alt', CONF.object_storage.operator_role]]
 
@@ -54,6 +52,7 @@ class ContainerSyncTest(base.BaseObjectTest):
         super(ContainerSyncTest, cls).resource_setup()
         cls.containers = []
         cls.objects = []
+        cls.clients = {}
 
         # Default container-server config only allows localhost
         cls.local_ip = '127.0.0.1'
@@ -72,13 +71,11 @@ class ContainerSyncTest(base.BaseObjectTest):
             (cls.container_client_alt, cls.object_client_alt)
         for cont_name, client in cls.clients.items():
             client[0].create_container(cont_name)
+            cls.addClassResourceCleanup(base.delete_containers,
+                                        cont_name,
+                                        client[0],
+                                        client[1])
             cls.containers.append(cont_name)
-
-    @classmethod
-    def resource_cleanup(cls):
-        for client in cls.clients.values():
-            cls.delete_containers(client[0], client[1])
-        super(ContainerSyncTest, cls).resource_cleanup()
 
     def _test_container_synchronization(self, make_headers):
         # container to container synchronization

@@ -28,7 +28,7 @@ class ServersOnMultiNodesTest(base.BaseV2ComputeAdminTest):
     def resource_setup(cls):
         super(ServersOnMultiNodesTest, cls).resource_setup()
         cls.server01 = cls.create_test_server(wait_until='ACTIVE')['id']
-        cls.host01 = cls._get_host(cls.server01)
+        cls.host01 = cls.get_host_for_server(cls.server01)
 
     @classmethod
     def skip_checks(cls):
@@ -38,57 +38,8 @@ class ServersOnMultiNodesTest(base.BaseV2ComputeAdminTest):
             raise cls.skipException(
                 "Less than 2 compute nodes, skipping multi-nodes test.")
 
-    @classmethod
-    def _get_host(cls, server_id):
-        return cls.os_admin.servers_client.show_server(
-            server_id)['server']['OS-EXT-SRV-ATTR:host']
-
-    @decorators.idempotent_id('26a9d5df-6890-45f2-abc4-a659290cb130')
-    @testtools.skipUnless(
-        compute.is_scheduler_filter_enabled("SameHostFilter"),
-        'SameHostFilter is not available.')
-    def test_create_servers_on_same_host(self):
-        hints = {'same_host': self.server01}
-        server02 = self.create_test_server(scheduler_hints=hints,
-                                           wait_until='ACTIVE')['id']
-        host02 = self._get_host(server02)
-        self.assertEqual(self.host01, host02)
-
-    @decorators.idempotent_id('cc7ca884-6e3e-42a3-a92f-c522fcf25e8e')
-    @testtools.skipUnless(
-        compute.is_scheduler_filter_enabled("DifferentHostFilter"),
-        'DifferentHostFilter is not available.')
-    def test_create_servers_on_different_hosts(self):
-        hints = {'different_host': self.server01}
-        server02 = self.create_test_server(scheduler_hints=hints,
-                                           wait_until='ACTIVE')['id']
-        host02 = self._get_host(server02)
-        self.assertNotEqual(self.host01, host02)
-
-    @decorators.idempotent_id('7869cc84-d661-4e14-9f00-c18cdc89cf57')
-    @testtools.skipUnless(
-        compute.is_scheduler_filter_enabled("DifferentHostFilter"),
-        'DifferentHostFilter is not available.')
-    def test_create_servers_on_different_hosts_with_list_of_servers(self):
-        # This scheduler-hint supports list of servers also.
-        hints = {'different_host': [self.server01]}
-        server02 = self.create_test_server(scheduler_hints=hints,
-                                           wait_until='ACTIVE')['id']
-        host02 = self._get_host(server02)
-        self.assertNotEqual(self.host01, host02)
-
-    @decorators.idempotent_id('f8bd0867-e459-45f5-ba53-59134552fe04')
-    @testtools.skipUnless(
-        compute.is_scheduler_filter_enabled("ServerGroupAntiAffinityFilter"),
-        'ServerGroupAntiAffinityFilter is not available.')
-    def test_create_server_with_scheduler_hint_group_anti_affinity(self):
-        """Tests the ServerGroupAntiAffinityFilter
-
-        Creates two servers in an anti-affinity server group and
-        asserts the servers are in the group and on different hosts.
-        """
-        group_id = self.create_test_server_group(
-            policy=['anti-affinity'])['id']
+    def _create_servers_with_group(self, policy):
+        group_id = self.create_test_server_group(policy=[policy])['id']
         hints = {'group': group_id}
         reservation_id = self.create_test_server(
             scheduler_hints=hints, wait_until='ACTIVE', min_count=2,
@@ -105,9 +56,70 @@ class ServersOnMultiNodesTest(base.BaseV2ComputeAdminTest):
         hosts = {}
         for server in servers:
             self.assertIn(server['id'], server_group['members'])
-            hosts[server['id']] = self._get_host(server['id'])
+            hosts[server['id']] = self.get_host_for_server(server['id'])
 
-        # Assert the servers are on different hosts.
+        return hosts
+
+    @decorators.idempotent_id('26a9d5df-6890-45f2-abc4-a659290cb130')
+    @testtools.skipUnless(
+        compute.is_scheduler_filter_enabled("SameHostFilter"),
+        'SameHostFilter is not available.')
+    def test_create_servers_on_same_host(self):
+        hints = {'same_host': self.server01}
+        server02 = self.create_test_server(scheduler_hints=hints,
+                                           wait_until='ACTIVE')['id']
+        host02 = self.get_host_for_server(server02)
+        self.assertEqual(self.host01, host02)
+
+    @decorators.idempotent_id('cc7ca884-6e3e-42a3-a92f-c522fcf25e8e')
+    @testtools.skipUnless(
+        compute.is_scheduler_filter_enabled("DifferentHostFilter"),
+        'DifferentHostFilter is not available.')
+    def test_create_servers_on_different_hosts(self):
+        hints = {'different_host': self.server01}
+        server02 = self.create_test_server(scheduler_hints=hints,
+                                           wait_until='ACTIVE')['id']
+        host02 = self.get_host_for_server(server02)
+        self.assertNotEqual(self.host01, host02)
+
+    @decorators.idempotent_id('7869cc84-d661-4e14-9f00-c18cdc89cf57')
+    @testtools.skipUnless(
+        compute.is_scheduler_filter_enabled("DifferentHostFilter"),
+        'DifferentHostFilter is not available.')
+    def test_create_servers_on_different_hosts_with_list_of_servers(self):
+        # This scheduler-hint supports list of servers also.
+        hints = {'different_host': [self.server01]}
+        server02 = self.create_test_server(scheduler_hints=hints,
+                                           wait_until='ACTIVE')['id']
+        host02 = self.get_host_for_server(server02)
+        self.assertNotEqual(self.host01, host02)
+
+    @decorators.idempotent_id('f8bd0867-e459-45f5-ba53-59134552fe04')
+    @testtools.skipUnless(
+        compute.is_scheduler_filter_enabled("ServerGroupAntiAffinityFilter"),
+        'ServerGroupAntiAffinityFilter is not available.')
+    def test_create_server_with_scheduler_hint_group_anti_affinity(self):
+        """Tests the ServerGroupAntiAffinityFilter
+
+        Creates two servers in an anti-affinity server group and
+        asserts the servers are in the group and on different hosts.
+        """
+        hosts = self._create_servers_with_group('anti-affinity')
         hostnames = list(hosts.values())
         self.assertNotEqual(hostnames[0], hostnames[1],
                             'Servers are on the same host: %s' % hosts)
+
+    @decorators.idempotent_id('9d2e924a-baf4-11e7-b856-fa163e65f5ce')
+    @testtools.skipUnless(
+        compute.is_scheduler_filter_enabled("ServerGroupAffinityFilter"),
+        'ServerGroupAffinityFilter is not available.')
+    def test_create_server_with_scheduler_hint_group_affinity(self):
+        """Tests the ServerGroupAffinityFilter
+
+        Creates two servers in an affinity server group and
+        asserts the servers are in the group and on same host.
+        """
+        hosts = self._create_servers_with_group('affinity')
+        hostnames = list(hosts.values())
+        self.assertEqual(hostnames[0], hostnames[1],
+                         'Servers are on the different hosts: %s' % hosts)

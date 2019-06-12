@@ -28,9 +28,9 @@
 #   * the environment variable git_dir pointing to the location
 #   * of said git repositories
 #   ) OR (
-#   * network access to the review.openstack.org Gerrit API
+#   * network access to the review.opendev.org Gerrit API
 #     working directory
-#   * network access to https://git.openstack.org/cgit
+#   * network access to https://opendev.org/openstack
 #   ))
 #
 # If a file named doc/source/data/tempest-plugins-registry.header or
@@ -41,20 +41,42 @@
 set -ex
 
 (
-declare -A plugins
-
 if [[ -r doc/source/data/tempest-plugins-registry.header ]]; then
     cat doc/source/data/tempest-plugins-registry.header
 fi
 
 sorted_plugins=$(python tools/generate-tempest-plugins-list.py)
 
-for k in ${sorted_plugins}; do
-    project=${k:0:28}
-    giturl="git://git.openstack.org/openstack/${k:0:26}"
-    printf "|%-28s|%-73s|\n" "${project}" "${giturl}"
-    printf "+----------------------------+-------------------------------------------------------------------------+\n"
+name_col_len=$(echo "${sorted_plugins}" | wc -L)
+name_col_len=$(( name_col_len + 20 ))
+
+# Print the title underline for a RST table.
+function title_underline {
+    printf "== "
+    local len=$1
+    while [[ $len -gt 0 ]]; do
+        printf "="
+        len=$(( len - 1))
+    done
+    printf " ===\n"
+}
+
+printf "\n\n"
+title_underline ${name_col_len}
+printf "%-3s %-${name_col_len}s %s\n" "SR" "Plugin Name" "URL"
+title_underline ${name_col_len}
+
+i=0
+for plugin in ${sorted_plugins}; do
+    i=$((i+1))
+    giturl="https://opendev.org/openstack/${plugin}"
+    gitlink="https://opendev.org/openstack/${plugin}"
+    printf "%-3s %-${name_col_len}s %s\n" "$i" "${plugin}" "\`${giturl} <${gitlink}>\`__"
 done
+
+title_underline ${name_col_len}
+
+printf "\n\n"
 
 if [[ -r doc/source/data/tempest-plugins-registry.footer ]]; then
     cat doc/source/data/tempest-plugins-registry.footer

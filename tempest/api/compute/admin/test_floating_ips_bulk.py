@@ -25,12 +25,16 @@ from tempest.lib import exceptions
 CONF = config.CONF
 
 
+# TODO(stephenfin): Remove this test class once the nova queens branch goes
+# into extended maintenance mode.
 class FloatingIPsBulkAdminTestJSON(base.BaseV2ComputeAdminTest):
     """Tests Floating IPs Bulk APIs that require admin privileges.
 
     API documentation - http://docs.openstack.org/api/openstack-compute/2/
     content/ext-os-floating-ips-bulk.html
     """
+    max_microversion = '2.35'
+    depends_on_nova_network = True
 
     @classmethod
     def setup_clients(cls):

@@ -40,7 +40,7 @@ class VolumesBackupsTest(base.BaseVolumeTest):
             backup_id)['restore']
 
         # Delete backup
-        self.addCleanup(self.volumes_client.delete_volume,
+        self.addCleanup(self.delete_volume, self.volumes_client,
                         restored_volume['volume_id'])
         self.assertEqual(backup_id, restored_volume['backup_id'])
         waiters.wait_for_volume_resource_status(self.backups_client,
@@ -50,6 +50,7 @@ class VolumesBackupsTest(base.BaseVolumeTest):
                                                 'available')
         return restored_volume
 
+    @decorators.skip_because(bug="1483434")
     @testtools.skipIf(CONF.volume.storage_protocol == 'ceph',
                       'ceph does not support arbitrary container names')
     @decorators.idempotent_id('a66eb488-8ee1-47d4-8e9f-575a095728c6')
@@ -59,8 +60,7 @@ class VolumesBackupsTest(base.BaseVolumeTest):
                     "vol-meta2": "value2",
                     "vol-meta3": "value3"}
         volume = self.create_volume(metadata=metadata)
-        self.addCleanup(self.volumes_client.delete_volume,
-                        volume['id'])
+        self.addCleanup(self.delete_volume, self.volumes_client, volume['id'])
 
         # Create a backup
         backup_name = data_utils.rand_name(
@@ -109,8 +109,7 @@ class VolumesBackupsTest(base.BaseVolumeTest):
         """
         # Create a server
         volume = self.create_volume()
-        self.addCleanup(self.volumes_client.delete_volume,
-                        volume['id'])
+        self.addCleanup(self.delete_volume, self.volumes_client, volume['id'])
         server = self.create_server()
         # Attach volume to instance
         self.attach_volume(server['id'], volume['id'])
@@ -119,6 +118,8 @@ class VolumesBackupsTest(base.BaseVolumeTest):
             self.__class__.__name__ + '-Backup')
         backup = self.create_backup(volume_id=volume['id'],
                                     name=backup_name, force=True)
+        waiters.wait_for_volume_resource_status(self.volumes_client,
+                                                volume['id'], 'in-use')
         self.assertEqual(backup_name, backup['name'])
 
     @decorators.idempotent_id('2a8ba340-dff2-4511-9db7-646f07156b15')
@@ -130,10 +131,12 @@ class VolumesBackupsTest(base.BaseVolumeTest):
 
         volume_details = self.volumes_client.show_volume(
             volume['id'])['volume']
-        self.assertEqual('true', volume_details['bootable'])
+        self.assertTrue(volume_details['bootable'])
 
         # Create a backup
         backup = self.create_backup(volume_id=volume['id'])
+        waiters.wait_for_volume_resource_status(self.volumes_client,
+                                                volume['id'], 'available')
 
         # Restore the backup
         restored_volume_id = self.restore_backup(backup['id'])['volume_id']
@@ -142,7 +145,7 @@ class VolumesBackupsTest(base.BaseVolumeTest):
         restored_volume_info = self.volumes_client.show_volume(
             restored_volume_id)['volume']
 
-        self.assertEqual('true', restored_volume_info['bootable'])
+        self.assertTrue(restored_volume_info['bootable'])
 
 
 class VolumesBackupsV39Test(base.BaseVolumeTest):
@@ -162,6 +165,8 @@ class VolumesBackupsV39Test(base.BaseVolumeTest):
         # Create volume and backup
         volume = self.create_volume()
         backup = self.create_backup(volume_id=volume['id'])
+        waiters.wait_for_volume_resource_status(self.volumes_client,
+                                                volume['id'], 'available')
 
         # Update backup and assert response body for update_backup method
         update_kwargs = {

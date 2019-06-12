@@ -12,6 +12,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import testtools
 
 from tempest.api.identity import base
 from tempest import config
@@ -22,6 +23,10 @@ CONF = config.CONF
 
 
 class ProjectsTestJSON(base.BaseIdentityV3AdminTest):
+    # NOTE: force_tenant_isolation is true in the base class by default but
+    # overridden to false here to allow test execution for clouds using the
+    # pre-provisioned credentials provider.
+    force_tenant_isolation = False
 
     @decorators.idempotent_id('0ecf465c-0dc4-4532-ab53-91ffeb74d12d')
     def test_project_create_with_description(self):
@@ -34,7 +39,7 @@ class ProjectsTestJSON(base.BaseIdentityV3AdminTest):
                          'been sent in response for create')
         body = self.projects_client.show_project(project_id)['project']
         desc2 = body['description']
-        self.assertEqual(desc2, project_desc, 'Description does not appear'
+        self.assertEqual(desc2, project_desc, 'Description does not appear '
                          'to be set')
 
     @decorators.idempotent_id('5f50fe07-8166-430b-a882-3b2ee0abe26f')
@@ -101,22 +106,19 @@ class ProjectsTestJSON(base.BaseIdentityV3AdminTest):
         # Create a project that is enabled
         project = self.setup_test_project(enabled=True)
         project_id = project['id']
-        en1 = project['enabled']
-        self.assertTrue(en1, 'Enable should be True in response')
+        self.assertTrue(project['enabled'],
+                        'Enable should be True in response')
         body = self.projects_client.show_project(project_id)['project']
-        en2 = body['enabled']
-        self.assertTrue(en2, 'Enable should be True in lookup')
+        self.assertTrue(body['enabled'], 'Enable should be True in lookup')
 
     @decorators.idempotent_id('78f96a9c-e0e0-4ee6-a3ba-fbf6dfd03207')
     def test_project_create_not_enabled(self):
         # Create a project that is not enabled
         project = self.setup_test_project(enabled=False)
-        en1 = project['enabled']
-        self.assertEqual('false', str(en1).lower(),
+        self.assertFalse(project['enabled'],
                          'Enable should be False in response')
         body = self.projects_client.show_project(project['id'])['project']
-        en2 = body['enabled']
-        self.assertEqual('false', str(en2).lower(),
+        self.assertFalse(body['enabled'],
                          'Enable should be False in lookup')
 
     @decorators.idempotent_id('f608f368-048c-496b-ad63-d286c26dab6b')
@@ -178,10 +180,14 @@ class ProjectsTestJSON(base.BaseIdentityV3AdminTest):
         resp3_en = body['enabled']
 
         self.assertNotEqual(resp1_en, resp3_en)
-        self.assertEqual('false', str(resp1_en).lower())
+        self.assertFalse(project['enabled'])
         self.assertEqual(resp2_en, resp3_en)
 
     @decorators.idempotent_id('59398d4a-5dc5-4f86-9a4c-c26cc804d6c6')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an '
+                      'immutable user source and solely '
+                      'provides read-only access to users.')
     def test_associate_user_to_project(self):
         # Associate a user to a project
         # Create a Project

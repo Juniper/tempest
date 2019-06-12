@@ -32,6 +32,7 @@ class ConfigFixture(conf_fixture.Config):
         super(ConfigFixture, self).setUp()
         self.conf.set_default('build_interval', 10, group='compute')
         self.conf.set_default('build_timeout', 10, group='compute')
+        self.conf.set_default('image_ref', 'fake_image_id', group='compute')
         self.conf.set_default('disable_ssl_certificate_validation', True,
                               group='identity')
         self.conf.set_default('uri', 'http://fake_uri.com/auth',
@@ -39,11 +40,12 @@ class ConfigFixture(conf_fixture.Config):
         self.conf.set_default('uri_v3', 'http://fake_uri_v3.com/auth',
                               group='identity')
         self.conf.set_default('neutron', True, group='service_available')
-        self.conf.set_default('heat', True, group='service_available')
-        if not os.path.exists(str(os.environ.get('OS_TEST_LOCK_PATH'))):
-            os.mkdir(str(os.environ.get('OS_TEST_LOCK_PATH')))
+        lock_path = str(os.environ.get('OS_TEST_LOCK_PATH',
+                                       os.environ.get('TMPDIR', '/tmp')))
+        if not os.path.exists(lock_path):
+            os.mkdir(lock_path)
         lockutils.set_defaults(
-            lock_path=str(os.environ.get('OS_TEST_LOCK_PATH')),
+            lock_path=lock_path,
         )
         self.conf.set_default('auth_version', 'v2', group='identity')
         for config_option in ['username', 'password', 'project_name']:
@@ -57,6 +59,7 @@ class FakePrivate(config.TempestConfigPrivate):
     def __init__(self, parse_conf=True, config_path=None):
         self._set_attrs()
         self.lock_path = cfg.CONF.oslo_concurrency.lock_path
+
 
 fake_service1_group = cfg.OptGroup(name='fake-service1', title='Fake service1')
 

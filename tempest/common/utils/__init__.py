@@ -31,15 +31,15 @@ class DataUtils(object):
 
         if attr == 'rand_name':
             # NOTE(flwang): This is a proxy to generate a random name that
-            # includes a random number and a prefix if one is configured in
-            # CONF.resources_prefix
+            # includes a random number and a prefix 'tempest'
             attr_obj = partial(lib_data_utils.rand_name,
-                               prefix=CONF.resources_prefix)
+                               prefix='tempest')
         else:
             attr_obj = getattr(lib_data_utils, attr)
 
         self.__dict__[attr] = attr_obj
         return attr_obj
+
 
 data_utils = DataUtils()
 
@@ -78,7 +78,7 @@ def services(*args):
         decorators.attr(type=list(args))(f)
 
         @functools.wraps(f)
-        def wrapper(self, *func_args, **func_kwargs):
+        def wrapper(*func_args, **func_kwargs):
             service_list = get_service_list()
 
             for service in args:
@@ -86,7 +86,7 @@ def services(*args):
                     msg = 'Skipped because the %s service is not available' % (
                         service)
                     raise testtools.TestCase.skipException(msg)
-            return f(self, *func_args, **func_kwargs)
+            return f(*func_args, **func_kwargs)
         return wrapper
     return decorator
 

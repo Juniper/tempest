@@ -38,7 +38,7 @@ class EncryptionTypesClient(rest_client.RestClient):
     def show_encryption_type(self, volume_type_id):
         """Get the volume encryption type for the specified volume type.
 
-        volume_type_id: Id of volume_type.
+        :param volume_type_id: Id of volume type.
         """
         url = "/types/%s/encryption" % volume_type_id
         resp, body = self.get(url)
@@ -49,9 +49,9 @@ class EncryptionTypesClient(rest_client.RestClient):
     def create_encryption_type(self, volume_type_id, **kwargs):
         """Create encryption type.
 
-        TODO: Current api-site doesn't contain this API description.
-        After fixing the api-site, we need to fix here also for putting
-        the link to api-site.
+        For a full list of available parameters, please refer to the official
+        API reference:
+        https://developer.openstack.org/api-ref/block-storage/v2/#create-an-encryption-type-for-v2
         """
         url = "/types/%s/encryption" % volume_type_id
         post_body = json.dumps({'encryption': kwargs})
@@ -61,7 +61,7 @@ class EncryptionTypesClient(rest_client.RestClient):
         return rest_client.ResponseBody(resp, body)
 
     def delete_encryption_type(self, volume_type_id):
-        """Delete the encryption type for the specified volume-type."""
+        """Delete the encryption type for the specified volume type."""
         resp, body = self.delete(
             "/types/%s/encryption/provider" % volume_type_id)
         self.expected_success(202, resp.status)

@@ -28,6 +28,8 @@ from tempest.common.utils import net_utils
 from tempest.common import waiters
 from tempest import config
 from tempest import exceptions
+from tempest.lib.common import api_microversion_fixture
+from tempest.lib.common import api_version_utils
 from tempest.lib.common.utils import data_utils
 from tempest.lib.common.utils import test_utils
 from tempest.lib import exceptions as lib_exc
@@ -37,11 +39,56 @@ CONF = config.CONF
 
 LOG = log.getLogger(__name__)
 
+LATEST_MICROVERSION = 'latest'
+
 
 class ScenarioTest(tempest.test.BaseTestCase):
     """Base class for scenario tests. Uses tempest own clients. """
 
     credentials = ['primary']
+
+    compute_min_microversion = None
+    compute_max_microversion = LATEST_MICROVERSION
+    volume_min_microversion = None
+    volume_max_microversion = LATEST_MICROVERSION
+    placement_min_microversion = None
+    placement_max_microversion = LATEST_MICROVERSION
+
+    @classmethod
+    def skip_checks(cls):
+        super(ScenarioTest, cls).skip_checks()
+        api_version_utils.check_skip_with_microversion(
+            cls.compute_min_microversion, cls.compute_max_microversion,
+            CONF.compute.min_microversion, CONF.compute.max_microversion)
+        api_version_utils.check_skip_with_microversion(
+            cls.volume_min_microversion, cls.volume_max_microversion,
+            CONF.volume.min_microversion, CONF.volume.max_microversion)
+        api_version_utils.check_skip_with_microversion(
+            cls.placement_min_microversion, cls.placement_max_microversion,
+            CONF.placement.min_microversion, CONF.placement.max_microversion)
+
+    @classmethod
+    def resource_setup(cls):
+        super(ScenarioTest, cls).resource_setup()
+        cls.compute_request_microversion = (
+            api_version_utils.select_request_microversion(
+                cls.compute_min_microversion,
+                CONF.compute.min_microversion))
+        cls.volume_request_microversion = (
+            api_version_utils.select_request_microversion(
+                cls.volume_min_microversion,
+                CONF.volume.min_microversion))
+        cls.placement_request_microversion = (
+            api_version_utils.select_request_microversion(
+                cls.placement_min_microversion,
+                CONF.placement.min_microversion))
+
+    def setUp(self):
+        super(ScenarioTest, self).setUp()
+        self.useFixture(api_microversion_fixture.APIMicroversionFixture(
+            compute_microversion=self.compute_request_microversion,
+            volume_microversion=self.volume_request_microversion,
+            placement_microversion=self.placement_request_microversion))
 
     @classmethod
     def setup_clients(cls):
@@ -83,6 +130,7 @@ class ScenarioTest(tempest.test.BaseTestCase):
         if CONF.service_available.cinder:
             cls.volumes_client = cls.os_primary.volumes_client_latest
             cls.snapshots_client = cls.os_primary.snapshots_client_latest
+            cls.backups_client = cls.os_primary.backups_client_latest
 
     # ## Test functions library
     #
@@ -93,6 +141,10 @@ class ScenarioTest(tempest.test.BaseTestCase):
         if not client:
             client = self.ports_client
         name = data_utils.rand_name(self.__class__.__name__)
+        if CONF.network.port_vnic_type and 'binding:vnic_type' not in kwargs:
+            kwargs['binding:vnic_type'] = CONF.network.port_vnic_type
+        if CONF.network.port_profile and 'binding:profile' not in kwargs:
+            kwargs['binding:profile'] = CONF.network.port_profile
         result = client.create_port(
             name=name,
             network_id=network_id,
@@ -120,6 +172,27 @@ class ScenarioTest(tempest.test.BaseTestCase):
         returns a test server. The purpose of this wrapper is to minimize
         the impact on the code of the tests already using this
         function.
+
+        :param **kwargs:
+            See extra parameters below
+
+        :Keyword Arguments:
+            * *vnic_type* (``string``) --
+              used when launching instances with pre-configured ports.
+              Examples:
+                normal: a traditional virtual port that is either attached
+                        to a linux bridge or an openvswitch bridge on a
+                        compute node.
+                direct: an SR-IOV port that is directly attached to a VM
+                macvtap: an SR-IOV port that is attached to a VM via a macvtap
+                         device.
+              Defaults to ``CONF.network.port_vnic_type``.
+            * *port_profile* (``dict``) --
+              This attribute is a dictionary that can be used (with admin
+              credentials) to supply information influencing the binding of
+              the port.
+              example: port_profile = "capabilities:[switchdev]"
+              Defaults to ``CONF.network.port_profile``.
         """
 
         # NOTE(jlanoux): As a first step, ssh checks in the scenario
@@ -138,14 +211,21 @@ class ScenarioTest(tempest.test.BaseTestCase):
         if name is None:
             name = data_utils.rand_name(self.__class__.__name__ + "-server")
 
-        vnic_type = CONF.network.port_vnic_type
+        vnic_type = kwargs.pop('vnic_type', CONF.network.port_vnic_type)
+        profile = kwargs.pop('port_profile', CONF.network.port_profile)
 
-        # If vnic_type is configured create port for
+        # If vnic_type or profile are configured create port for
         # every network
-        if vnic_type:
+        if vnic_type or profile:
             ports = []
+            create_port_body = {}
 
-            create_port_body = {'binding:vnic_type': vnic_type}
+            if vnic_type:
+                create_port_body['binding:vnic_type'] = vnic_type
+
+            if profile:
+                create_port_body['binding:profile'] = profile
+
             if kwargs:
                 # Convert security group names to security group ids
                 # to pass to create_port
@@ -154,7 +234,7 @@ class ScenarioTest(tempest.test.BaseTestCase):
                         clients.security_groups_client.list_security_groups(
                         ).get('security_groups')
                     sec_dict = dict([(s['name'], s['id'])
-                                    for s in security_groups])
+                                     for s in security_groups])
 
                     sec_groups_names = [s['name'] for s in kwargs.pop(
                         'security_groups')]
@@ -213,8 +293,12 @@ class ScenarioTest(tempest.test.BaseTestCase):
         if size is None:
             size = CONF.volume.volume_size
         if imageRef:
-            image = self.compute_images_client.show_image(imageRef)['image']
-            min_disk = image.get('minDisk')
+            if CONF.image_feature_enabled.api_v1:
+                resp = self.image_client.check_image(imageRef)
+                image = common_image.get_image_meta_from_headers(resp)
+            else:
+                image = self.image_client.show_image(imageRef)
+            min_disk = image.get('min_disk')
             size = max(size, min_disk)
         if name is None:
             name = data_utils.rand_name(self.__class__.__name__ + "-volume")
@@ -237,6 +321,37 @@ class ScenarioTest(tempest.test.BaseTestCase):
         volume = self.volumes_client.show_volume(volume['id'])['volume']
         return volume
 
+    def create_backup(self, volume_id, name=None, description=None,
+                      force=False, snapshot_id=None, incremental=False,
+                      container=None):
+
+        name = name or data_utils.rand_name(
+            self.__class__.__name__ + "-backup")
+        kwargs = {'name': name,
+                  'description': description,
+                  'force': force,
+                  'snapshot_id': snapshot_id,
+                  'incremental': incremental,
+                  'container': container}
+        backup = self.backups_client.create_backup(volume_id=volume_id,
+                                                   **kwargs)['backup']
+        self.addCleanup(self.backups_client.delete_backup, backup['id'])
+        waiters.wait_for_volume_resource_status(self.backups_client,
+                                                backup['id'], 'available')
+        return backup
+
+    def restore_backup(self, backup_id):
+        restore = self.backups_client.restore_backup(backup_id)['restore']
+        self.addCleanup(self.volumes_client.delete_volume,
+                        restore['volume_id'])
+        waiters.wait_for_volume_resource_status(self.backups_client,
+                                                backup_id, 'available')
+        waiters.wait_for_volume_resource_status(self.volumes_client,
+                                                restore['volume_id'],
+                                                'available')
+        self.assertEqual(backup_id, restore['backup_id'])
+        return restore
+
     def create_volume_snapshot(self, volume_id, name=None, description=None,
                                metadata=None, force=False):
         name = name or data_utils.rand_name(
@@ -252,11 +367,32 @@ class ScenarioTest(tempest.test.BaseTestCase):
         self.addCleanup(self.snapshots_client.delete_snapshot, snapshot['id'])
         waiters.wait_for_volume_resource_status(self.snapshots_client,
                                                 snapshot['id'], 'available')
+        snapshot = self.snapshots_client.show_snapshot(
+            snapshot['id'])['snapshot']
         return snapshot
+
+    def _cleanup_volume_type(self, volume_type):
+        """Clean up a given volume type.
+
+        Ensuring all volumes associated to a type are first removed before
+        attempting to remove the type itself. This includes any image volume
+        cache volumes stored in a separate tenant to the original volumes
+        created from the type.
+        """
+        admin_volume_type_client = self.os_admin.volume_types_client_latest
+        admin_volumes_client = self.os_admin.volumes_client_latest
+        volumes = admin_volumes_client.list_volumes(
+            detail=True, params={'all_tenants': 1})['volumes']
+        type_name = volume_type['name']
+        for volume in [v for v in volumes if v['volume_type'] == type_name]:
+            test_utils.call_and_ignore_notfound_exc(
+                admin_volumes_client.delete_volume, volume['id'])
+            admin_volumes_client.wait_for_resource_deletion(volume['id'])
+        admin_volume_type_client.delete_volume_type(volume_type['id'])
 
     def create_volume_type(self, client=None, name=None, backend_name=None):
         if not client:
-            client = self.os_admin.volume_types_v2_client
+            client = self.os_admin.volume_types_client_latest
         if not name:
             class_name = self.__class__.__name__
             name = data_utils.rand_name(class_name + '-volume-type')
@@ -270,7 +406,7 @@ class ScenarioTest(tempest.test.BaseTestCase):
 
         volume_type = client.create_volume_type(
             name=randomized_name, extra_specs=extra_specs)['volume_type']
-        self.addCleanup(client.delete_volume_type, volume_type['id'])
+        self.addCleanup(self._cleanup_volume_type, volume_type)
         return volume_type
 
     def _create_loginable_secgroup_rule(self, secgroup_id=None):
@@ -331,12 +467,12 @@ class ScenarioTest(tempest.test.BaseTestCase):
                           server=None):
         """Get a SSH client to a remote server
 
-        @param ip_address the server floating or fixed IP address to use
-                          for ssh validation
-        @param username name of the Linux account on the remote server
-        @param private_key the SSH private key to use
-        @param server: server dict, used for debugging purposes
-        @return a RemoteClient object
+        :param ip_address: the server floating or fixed IP address to use
+                           for ssh validation
+        :param username: name of the Linux account on the remote server
+        :param private_key: the SSH private key to use
+        :param server: server dict, used for debugging purposes
+        :return: a RemoteClient object
         """
 
         if username is None:
@@ -404,7 +540,9 @@ class ScenarioTest(tempest.test.BaseTestCase):
                                        disk_format=img_disk_format,
                                        properties=img_properties)
         except IOError:
-            LOG.debug("A qcow2 image was not found. Try to get a uec image.")
+            LOG.warning(
+                "A(n) %s image was not found. Retrying with uec image.",
+                img_disk_format)
             kernel = self._image_create('scenario-aki', 'aki', aki_img_path)
             ramdisk = self._image_create('scenario-ari', 'ari', ari_img_path)
             properties = {'kernel_id': kernel, 'ramdisk_id': ramdisk}
@@ -502,7 +640,7 @@ class ScenarioTest(tempest.test.BaseTestCase):
                                                 volume['id'], 'available')
 
     def ping_ip_address(self, ip_address, should_succeed=True,
-                        ping_timeout=None, mtu=None):
+                        ping_timeout=None, mtu=None, server=None):
         timeout = ping_timeout or CONF.validation.ping_timeout
         cmd = ['ping', '-c1', '-w1']
 
@@ -536,12 +674,16 @@ class ScenarioTest(tempest.test.BaseTestCase):
                       'caller': caller, 'ip': ip_address, 'timeout': timeout,
                       'result': 'expected' if result else 'unexpected'
                   })
+        if server:
+            self._log_console_output([server])
         return result
 
     def check_vm_connectivity(self, ip_address,
                               username=None,
                               private_key=None,
                               should_connect=True,
+                              extra_msg="",
+                              server=None,
                               mtu=None):
         """Check server connectivity
 
@@ -551,43 +693,36 @@ class ScenarioTest(tempest.test.BaseTestCase):
         :param should_connect: True/False indicates positive/negative test
             positive - attempt ping and ssh
             negative - attempt ping and fail if succeed
+        :param extra_msg: Message to help with debugging if ``ping_ip_address``
+            fails
+        :param server: The server whose console to log for debugging
         :param mtu: network MTU to use for connectivity validation
 
         :raises: AssertError if the result of the connectivity check does
             not match the value of the should_connect param
         """
+        LOG.debug('checking network connections to IP %s with user: %s',
+                  ip_address, username)
         if should_connect:
             msg = "Timed out waiting for %s to become reachable" % ip_address
         else:
             msg = "ip address %s is reachable" % ip_address
+        if extra_msg:
+            msg = "%s\n%s" % (extra_msg, msg)
         self.assertTrue(self.ping_ip_address(ip_address,
                                              should_succeed=should_connect,
-                                             mtu=mtu),
+                                             mtu=mtu, server=server),
                         msg=msg)
         if should_connect:
             # no need to check ssh for negative connectivity
-            self.get_remote_client(ip_address, username, private_key)
-
-    def check_public_network_connectivity(self, ip_address, username,
-                                          private_key, should_connect=True,
-                                          msg=None, servers=None, mtu=None):
-        # The target login is assumed to have been configured for
-        # key-based authentication by cloud-init.
-        LOG.debug('checking network connections to IP %s with user: %s',
-                  ip_address, username)
-        try:
-            self.check_vm_connectivity(ip_address,
-                                       username,
-                                       private_key,
-                                       should_connect=should_connect,
-                                       mtu=mtu)
-        except Exception:
-            ex_msg = 'Public network connectivity check failed'
-            if msg:
-                ex_msg += ": " + msg
-            LOG.exception(ex_msg)
-            self._log_console_output(servers)
-            raise
+            try:
+                self.get_remote_client(ip_address, username, private_key,
+                                       server=server)
+            except Exception:
+                if not extra_msg:
+                    extra_msg = 'Failed to ssh to %s' % ip_address
+                LOG.exception(extra_msg)
+                raise
 
     def create_floating_ip(self, thing, pool_name=None):
         """Create a floating IP and associates to a server on Nova"""
@@ -604,9 +739,10 @@ class ScenarioTest(tempest.test.BaseTestCase):
         return floating_ip
 
     def create_timestamp(self, ip_address, dev_name=None, mount_path='/mnt',
-                         private_key=None):
+                         private_key=None, server=None):
         ssh_client = self.get_remote_client(ip_address,
-                                            private_key=private_key)
+                                            private_key=private_key,
+                                            server=server)
         if dev_name is not None:
             ssh_client.make_fs(dev_name)
             ssh_client.exec_command('sudo mount /dev/%s %s' % (dev_name,
@@ -620,9 +756,10 @@ class ScenarioTest(tempest.test.BaseTestCase):
         return timestamp
 
     def get_timestamp(self, ip_address, dev_name=None, mount_path='/mnt',
-                      private_key=None):
+                      private_key=None, server=None):
         ssh_client = self.get_remote_client(ip_address,
-                                            private_key=private_key)
+                                            private_key=private_key,
+                                            server=server)
         if dev_name is not None:
             ssh_client.mount(dev_name, mount_path)
         timestamp = ssh_client.exec_command('sudo cat %s/timestamp'
@@ -649,18 +786,21 @@ class ScenarioTest(tempest.test.BaseTestCase):
                 addresses = server['addresses'][
                     CONF.validation.network_for_ssh]
             else:
-                creds_provider = self._get_credentials_provider()
-                net_creds = creds_provider.get_primary_creds()
-                network = getattr(net_creds, 'network', None)
+                network = self.get_tenant_network()
                 addresses = (server['addresses'][network['name']]
                              if network else [])
             for address in addresses:
-                if (address['version'] == CONF.validation.ip_version_for_ssh
-                        and address['OS-EXT-IPS:type'] == 'fixed'):
+                if (address['version'] == CONF.validation.ip_version_for_ssh and  # noqa
+                        address['OS-EXT-IPS:type'] == 'fixed'):
                     return address['addr']
             raise exceptions.ServerUnreachable(server_id=server['id'])
         else:
             raise lib_exc.InvalidConfiguration()
+
+    @classmethod
+    def get_host_for_server(cls, server_id):
+        server_details = cls.os_admin.servers_client.show_server(server_id)
+        return server_details['server']['OS-EXT-SRV-ATTR:host']
 
 
 class NetworkScenarioTest(ScenarioTest):
@@ -770,8 +910,13 @@ class NetworkScenarioTest(ScenarioTest):
         return subnet
 
     def _get_server_port_id_and_ip4(self, server, ip_addr=None):
-        ports = self.os_admin.ports_client.list_ports(
-            device_id=server['id'], fixed_ip=ip_addr)['ports']
+        if ip_addr:
+            ports = self.os_admin.ports_client.list_ports(
+                device_id=server['id'],
+                fixed_ips='ip_address=%s' % ip_addr)['ports']
+        else:
+            ports = self.os_admin.ports_client.list_ports(
+                device_id=server['id'])['ports']
         # A port can have more than one IP address in some cases.
         # If the network is dual-stack (IPv4 + IPv6), this port is associated
         # with 2 subnets
@@ -785,8 +930,8 @@ class NetworkScenarioTest(ScenarioTest):
         port_map = [(p["id"], fxip["ip_address"])
                     for p in ports
                     for fxip in p["fixed_ips"]
-                    if netutils.is_valid_ipv4(fxip["ip_address"])
-                    and p['status'] in p_status]
+                    if (netutils.is_valid_ipv4(fxip["ip_address"]) and
+                        p['status'] in p_status)]
         inactive = [p for p in ports if p['status'] != 'ACTIVE']
         if inactive:
             LOG.warning("Instance has ports that are not ACTIVE: %s", inactive)
@@ -881,32 +1026,45 @@ class NetworkScenarioTest(ScenarioTest):
             raise
 
     def check_remote_connectivity(self, source, dest, should_succeed=True,
-                                  nic=None):
-        """assert ping server via source ssh connection
+                                  nic=None, protocol='icmp'):
+        """check server connectivity via source ssh connection
 
-        :param source: RemoteClient: an ssh connection from which to ping
-        :param dest: an IP to ping against
-        :param should_succeed: boolean: should ping succeed or not
-        :param nic: specific network interface to ping from
+        :param source: RemoteClient: an ssh connection from which to execute
+            the check
+        :param dest: an IP to check connectivity against
+        :param should_succeed: boolean should connection succeed or not
+        :param nic: specific network interface to test connectivity from
+        :param protocol: the protocol used to test connectivity with.
+        :returns: True, if the connection succeeded and it was expected to
+            succeed. False otherwise.
         """
-        def ping_remote():
+        method_name = '%s_check' % protocol
+        connectivity_checker = getattr(source, method_name)
+
+        def connect_remote():
             try:
-                source.ping_host(dest, nic=nic)
+                connectivity_checker(dest, nic=nic)
             except lib_exc.SSHExecCommandFailed:
-                LOG.warning('Failed to ping IP: %s via a ssh connection '
-                            'from: %s.', dest, source.ssh_client.host)
+                LOG.warning('Failed to check %(protocol)s connectivity for '
+                            'IP %(dest)s via a ssh connection from: %(src)s.',
+                            dict(protocol=protocol, dest=dest,
+                                 src=source.ssh_client.host))
                 return not should_succeed
             return should_succeed
 
-        result = test_utils.call_until_true(ping_remote,
+        result = test_utils.call_until_true(connect_remote,
                                             CONF.validation.ping_timeout, 1)
+        if result:
+            return
+
         source_host = source.ssh_client.host
         if should_succeed:
             msg = "Timed out waiting for %s to become reachable from %s" \
                 % (dest, source_host)
         else:
             msg = "%s is reachable from %s" % (dest, source_host)
-        self.assertTrue(result, msg)
+        self._log_console_output()
+        self.fail(msg)
 
     def _create_security_group(self, security_group_rules_client=None,
                                tenant_id=None,
@@ -1157,9 +1315,9 @@ class EncryptionScenarioTest(ScenarioTest):
     @classmethod
     def setup_clients(cls):
         super(EncryptionScenarioTest, cls).setup_clients()
-        cls.admin_volume_types_client = cls.os_admin.volume_types_v2_client
+        cls.admin_volume_types_client = cls.os_admin.volume_types_client_latest
         cls.admin_encryption_types_client =\
-            cls.os_admin.encryption_types_v2_client
+            cls.os_admin.encryption_types_client_latest
 
     def create_encryption_type(self, client=None, type_id=None, provider=None,
                                key_size=None, cipher=None,
@@ -1172,7 +1330,7 @@ class EncryptionScenarioTest(ScenarioTest):
         LOG.debug("Creating an encryption type for volume type: %s", type_id)
         client.create_encryption_type(
             type_id, provider=provider, key_size=key_size, cipher=cipher,
-            control_location=control_location)['encryption']
+            control_location=control_location)
 
     def create_encrypted_volume(self, encryption_provider, volume_type,
                                 key_size=256, cipher='aes-xts-plain64',

@@ -9,13 +9,15 @@ implementations for both correctness, as well as a burn in tool for
 OpenStack clouds.
 
 As such Tempest tests come in many flavors, each with their own rules
-and guidelines. Below is the overview of the Tempest respository structure
+and guidelines. Below is the overview of the Tempest repository structure
 to make this clear.
 
-| tempest/
-|    api/ - API tests
-|    scenario/ - complex scenario tests
-|    tests/ - unit tests for Tempest internals
+.. code-block:: console
+
+   tempest/
+      api/ - API tests
+      scenario/ - complex scenario tests
+      tests/ - unit tests for Tempest internals
 
 Each of these directories contains different types of tests. What
 belongs in each directory, the rules and examples for good tests, are

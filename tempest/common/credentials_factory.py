@@ -86,7 +86,7 @@ def get_dynamic_provider_params(identity_version, admin_creds=None):
         ('public_network_id', CONF.network.public_network_id),
         ('create_networks', (CONF.auth.create_isolated_networks and not
                              CONF.network.shared_physical_network)),
-        ('resource_prefix', CONF.resources_prefix),
+        ('resource_prefix', 'tempest'),
         ('identity_admin_endpoint_type', endpoint_type)
     ]))
 
@@ -209,6 +209,7 @@ def is_alt_available(identity_version):
             return True
     except exceptions.InvalidConfiguration:
         return False
+
 
 # === Credentials
 

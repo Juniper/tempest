@@ -29,13 +29,11 @@ CONF = config.CONF
 LOG = logging.getLogger(__name__)
 
 
-class LiveMigrationTest(base.BaseV2ComputeAdminTest):
-    max_microversion = '2.24'
-    block_migration = None
+class LiveMigrationTestBase(base.BaseV2ComputeAdminTest):
 
     @classmethod
     def skip_checks(cls):
-        super(LiveMigrationTest, cls).skip_checks()
+        super(LiveMigrationTestBase, cls).skip_checks()
 
         if not CONF.compute_feature_enabled.live_migration:
             skip_msg = ("%s skipped as live-migration is "
@@ -52,21 +50,20 @@ class LiveMigrationTest(base.BaseV2ComputeAdminTest):
         # a subnet so the instance being migrated has a single port, but
         # we need that to make sure we are properly updating the port
         # host bindings during the live migration.
-        # TODO(mriedem): SSH validation before and after the instance is
-        # live migrated would be a nice test wrinkle addition.
         cls.set_network_resources(network=True, subnet=True)
-        super(LiveMigrationTest, cls).setup_credentials()
+        super(LiveMigrationTestBase, cls).setup_credentials()
 
     @classmethod
     def setup_clients(cls):
-        super(LiveMigrationTest, cls).setup_clients()
+        super(LiveMigrationTestBase, cls).setup_clients()
         cls.admin_migration_client = cls.os_admin.migrations_client
 
     def _migrate_server_to(self, server_id, dest_host, volume_backed=False):
         kwargs = dict()
         block_migration = getattr(self, 'block_migration', None)
         if self.block_migration is None:
-            kwargs['disk_over_commit'] = False
+            if self.is_requested_microversion_compatible('2.24'):
+                kwargs['disk_over_commit'] = False
             block_migration = (CONF.compute_feature_enabled.
                                block_migration_for_live_migration and
                                not volume_backed)
@@ -89,6 +86,11 @@ class LiveMigrationTest(base.BaseV2ComputeAdminTest):
         msg += "]"
         self.assertEqual(target_host, self.get_host_for_server(server_id),
                          msg)
+
+
+class LiveMigrationTest(LiveMigrationTestBase):
+    max_microversion = '2.24'
+    block_migration = None
 
     def _test_live_migration(self, state='ACTIVE', volume_backed=False):
         """Tests live migration between two hosts.
@@ -132,7 +134,9 @@ class LiveMigrationTest(base.BaseV2ComputeAdminTest):
     def test_live_block_migration_paused(self):
         self._test_live_migration(state='PAUSED')
 
-    @decorators.skip_because(bug="1524898")
+    @testtools.skipUnless(CONF.compute_feature_enabled.
+                          volume_backed_live_migration,
+                          'Volume-backed live migration not available')
     @decorators.idempotent_id('5071cf17-3004-4257-ae61-73a84e28badd')
     @utils.services('volume')
     def test_volume_backed_live_migration(self):
@@ -145,6 +149,7 @@ class LiveMigrationTest(base.BaseV2ComputeAdminTest):
     @testtools.skipIf(not CONF.compute_feature_enabled.
                       block_migrate_cinder_iscsi,
                       'Block Live migration not configured for iSCSI')
+    @utils.services('volume')
     def test_iscsi_volume(self):
         server = self.create_test_server(wait_until="ACTIVE")
         server_id = server['id']
@@ -156,18 +161,15 @@ class LiveMigrationTest(base.BaseV2ComputeAdminTest):
         self.attach_volume(server, volume, device='/dev/xvdb')
         server = self.admin_servers_client.show_server(server_id)['server']
         volume_id1 = server["os-extended-volumes:volumes_attached"][0]["id"]
-        self._migrate_server_to(server_id, target_host)
-        waiters.wait_for_server_status(self.servers_client,
-                                       server_id, 'ACTIVE')
+        self._live_migrate(server_id, target_host, 'ACTIVE')
 
         server = self.admin_servers_client.show_server(server_id)['server']
         volume_id2 = server["os-extended-volumes:volumes_attached"][0]["id"]
 
-        self.assertEqual(target_host, self.get_host_for_server(server_id))
         self.assertEqual(volume_id1, volume_id2)
 
 
-class LiveMigrationRemoteConsolesV26Test(LiveMigrationTest):
+class LiveMigrationRemoteConsolesV26Test(LiveMigrationTestBase):
     min_microversion = '2.6'
     max_microversion = 'latest'
 
@@ -202,10 +204,7 @@ class LiveMigrationRemoteConsolesV26Test(LiveMigrationTest):
         self._verify_console_interaction(server01_id)
         self._verify_console_interaction(server02_id)
 
-        self._migrate_server_to(server01_id, host02_id)
-        waiters.wait_for_server_status(self.servers_client,
-                                       server01_id, 'ACTIVE')
-        self.assertEqual(host02_id, self.get_host_for_server(server01_id))
+        self._live_migrate(server01_id, host02_id, 'ACTIVE')
         self._verify_console_interaction(server01_id)
         # At this point, both instances have a valid serial console
         # connection, which means the ports got updated.
@@ -228,8 +227,8 @@ class LiveMigrationRemoteConsolesV26Test(LiveMigrationTest):
             while data not in console_output and t <= 120.0:
                 try:
                     ws.send_frame(data)
-                    recieved = ws.receive_frame()
-                    console_output += recieved
+                    received = ws.receive_frame()
+                    console_output += received
                 except Exception:
                     # In case we had an issue with send/receive on the
                     # websocket connection, we create a new one.

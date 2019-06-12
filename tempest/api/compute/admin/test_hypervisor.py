@@ -17,18 +17,22 @@ from tempest.api.compute import base
 from tempest.lib import decorators
 
 
-class HypervisorAdminTestJSON(base.BaseV2ComputeAdminTest):
+class HypervisorAdminTestBase(base.BaseV2ComputeAdminTest):
     """Tests Hypervisors API that require admin privileges"""
 
     @classmethod
     def setup_clients(cls):
-        super(HypervisorAdminTestJSON, cls).setup_clients()
+        super(HypervisorAdminTestBase, cls).setup_clients()
         cls.client = cls.os_admin.hypervisor_client
 
     def _list_hypervisors(self):
         # List of hypervisors
         hypers = self.client.list_hypervisors()['hypervisors']
         return hypers
+
+
+class HypervisorAdminTestJSON(HypervisorAdminTestBase):
+    """Tests Hypervisors API that require admin privileges"""
 
     @decorators.idempotent_id('7f0ceacd-c64d-4e96-b8ee-d02943142cc5')
     def test_get_hypervisor_list(self):
@@ -53,17 +57,6 @@ class HypervisorAdminTestJSON(base.BaseV2ComputeAdminTest):
         self.assertEqual(details['hypervisor_hostname'],
                          hypers[0]['hypervisor_hostname'])
 
-    @decorators.idempotent_id('e81bba3f-6215-4e39-a286-d52d2f906862')
-    def test_get_hypervisor_show_servers(self):
-        # Show instances about the specific hypervisors
-        hypers = self._list_hypervisors()
-        self.assertNotEmpty(hypers, "No hypervisors found.")
-
-        hostname = hypers[0]['hypervisor_hostname']
-        hypervisors = (self.client.list_servers_on_hypervisor(hostname)
-                       ['hypervisors'])
-        self.assertNotEmpty(hypervisors)
-
     @decorators.idempotent_id('797e4f28-b6e0-454d-a548-80cc77c00816')
     def test_get_hypervisor_stats(self):
         # Verify the stats of the all hypervisor
@@ -86,7 +79,8 @@ class HypervisorAdminTestJSON(base.BaseV2ComputeAdminTest):
         for hyper in hypers:
             details = (self.client.show_hypervisor(hyper['id'])
                        ['hypervisor'])
-            if details['hypervisor_type'] != 'ironic':
+            if (details['hypervisor_type'] != 'ironic' and
+                    details['state'] == 'up'):
                 hypers_without_ironic.append(hyper)
                 ironic_only = False
 
@@ -109,6 +103,34 @@ class HypervisorAdminTestJSON(base.BaseV2ComputeAdminTest):
         self.assertTrue(
             has_valid_uptime,
             "None of the hypervisors had a valid uptime: %s" % hypers)
+
+
+class HypervisorAdminV228Test(HypervisorAdminTestBase):
+    min_microversion = '2.28'
+
+    @decorators.idempotent_id('d46bab64-0fbe-4eb8-9133-e6ee56188cc5')
+    def test_get_list_hypervisor_details(self):
+        # NOTE(zhufl): This test tests the hypervisor APIs response schema
+        # for 2.28 microversion. No specific assert or behaviour verification
+        # is needed.
+        hypers = self._list_hypervisors()
+        self.assertNotEmpty(hypers, "No hypervisors found.")
+        self.client.show_hypervisor(hypers[0]['id'])
+
+
+class HypervisorAdminUnderV252Test(HypervisorAdminTestBase):
+    max_microversion = '2.52'
+
+    @decorators.idempotent_id('e81bba3f-6215-4e39-a286-d52d2f906862')
+    def test_get_hypervisor_show_servers(self):
+        # Show instances about the specific hypervisors
+        hypers = self._list_hypervisors()
+        self.assertNotEmpty(hypers, "No hypervisors found.")
+
+        hostname = hypers[0]['hypervisor_hostname']
+        hypervisors = (self.client.list_servers_on_hypervisor(hostname)
+                       ['hypervisors'])
+        self.assertNotEmpty(hypervisors)
 
     @decorators.idempotent_id('d7e1805b-3b14-4a3b-b6fd-50ec6d9f361f')
     def test_search_hypervisor(self):

@@ -9,14 +9,22 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import testtools
 
 from tempest.api.identity import base
 from tempest.common import utils
+from tempest import config
 from tempest.lib.common.utils import data_utils
 from tempest.lib import decorators
 
+CONF = config.CONF
+
 
 class InheritsV3TestJSON(base.BaseIdentityV3AdminTest):
+    # NOTE: force_tenant_isolation is true in the base class by default but
+    # overridden to false here to allow test execution for clouds using the
+    # pre-provisioned credentials provider.
+    force_tenant_isolation = False
 
     @classmethod
     def skip_checks(cls):
@@ -30,34 +38,39 @@ class InheritsV3TestJSON(base.BaseIdentityV3AdminTest):
         u_name = data_utils.rand_name('user-')
         u_desc = '%s description' % u_name
         u_email = '%s@testmail.tm' % u_name
-        u_password = data_utils.rand_name('pass-')
+        u_password = data_utils.rand_password()
         cls.domain = cls.create_domain()
         cls.project = cls.projects_client.create_project(
             data_utils.rand_name('project-'),
             description=data_utils.rand_name('project-desc-'),
             domain_id=cls.domain['id'])['project']
+        cls.addClassResourceCleanup(cls.projects_client.delete_project,
+                                    cls.project['id'])
         cls.group = cls.groups_client.create_group(
             name=data_utils.rand_name('group-'), project_id=cls.project['id'],
             domain_id=cls.domain['id'])['group']
-        cls.user = cls.users_client.create_user(
-            name=u_name, description=u_desc, password=u_password,
-            email=u_email, project_id=cls.project['id'],
-            domain_id=cls.domain['id'])['user']
-
-    @classmethod
-    def resource_cleanup(cls):
-        cls.groups_client.delete_group(cls.group['id'])
-        cls.users_client.delete_user(cls.user['id'])
-        cls.projects_client.delete_project(cls.project['id'])
-        cls.domains_client.update_domain(cls.domain['id'], enabled=False)
-        cls.domains_client.delete_domain(cls.domain['id'])
-        super(InheritsV3TestJSON, cls).resource_cleanup()
+        cls.addClassResourceCleanup(cls.groups_client.delete_group,
+                                    cls.group['id'])
+        if not CONF.identity_feature_enabled.immutable_user_source:
+            cls.user = cls.users_client.create_user(
+                name=u_name,
+                description=u_desc,
+                password=u_password,
+                email=u_email,
+                project_id=cls.project['id'],
+                domain_id=cls.domain['id']
+            )['user']
+            cls.addClassResourceCleanup(cls.users_client.delete_user,
+                                        cls.user['id'])
 
     def _list_assertions(self, body, fetched_role_ids, role_id):
         self.assertEqual(len(body), 1)
         self.assertIn(role_id, fetched_role_ids)
 
     @decorators.idempotent_id('4e6f0366-97c8-423c-b2be-41eae6ac91c8')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_inherit_assign_list_check_revoke_roles_on_domains_user(self):
         # Create role
         src_role = self.setup_test_role()
@@ -106,6 +119,9 @@ class InheritsV3TestJSON(base.BaseIdentityV3AdminTest):
             self.domain['id'], self.group['id'], src_role['id'])
 
     @decorators.idempotent_id('18b70e45-7687-4b72-8277-b8f1a47d7591')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_inherit_assign_check_revoke_roles_on_projects_user(self):
         # Create role
         src_role = self.setup_test_role()
@@ -137,6 +153,9 @@ class InheritsV3TestJSON(base.BaseIdentityV3AdminTest):
              self.project['id'], self.group['id'], src_role['id']))
 
     @decorators.idempotent_id('3acf666e-5354-42ac-8e17-8b68893bcd36')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_inherit_assign_list_revoke_user_roles_on_domain(self):
         # Create role
         src_role = self.setup_test_role()
@@ -181,6 +200,9 @@ class InheritsV3TestJSON(base.BaseIdentityV3AdminTest):
         self.assertEmpty(assignments)
 
     @decorators.idempotent_id('9f02ccd9-9b57-46b4-8f77-dd5a736f3a06')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_inherit_assign_list_revoke_user_roles_on_project_tree(self):
         # Create role
         src_role = self.setup_test_role()

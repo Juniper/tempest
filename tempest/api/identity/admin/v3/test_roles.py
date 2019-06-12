@@ -12,6 +12,7 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+import testtools
 
 from tempest.api.identity import base
 from tempest import config
@@ -24,6 +25,10 @@ CONF = config.CONF
 
 
 class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
+    # NOTE: force_tenant_isolation is true in the base class by default but
+    # overridden to false here to allow test execution for clouds using the
+    # pre-provisioned credentials provider.
+    force_tenant_isolation = False
 
     @classmethod
     def resource_setup(cls):
@@ -32,6 +37,8 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
         for _ in range(3):
             role_name = data_utils.rand_name(name='role')
             role = cls.roles_client.create_role(name=role_name)['role']
+            cls.addClassResourceCleanup(cls.roles_client.delete_role,
+                                        role['id'])
             cls.roles.append(role)
         u_name = data_utils.rand_name('user')
         u_desc = '%s description' % u_name
@@ -42,29 +49,28 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
             data_utils.rand_name('project'),
             description=data_utils.rand_name('project-desc'),
             domain_id=cls.domain['id'])['project']
+        cls.addClassResourceCleanup(cls.projects_client.delete_project,
+                                    cls.project['id'])
         cls.group_body = cls.groups_client.create_group(
             name=data_utils.rand_name('Group'), project_id=cls.project['id'],
             domain_id=cls.domain['id'])['group']
-        cls.user_body = cls.users_client.create_user(
-            name=u_name, description=u_desc, password=cls.u_password,
-            email=u_email, project_id=cls.project['id'],
-            domain_id=cls.domain['id'])['user']
+        cls.addClassResourceCleanup(cls.groups_client.delete_group,
+                                    cls.group_body['id'])
         cls.role = cls.roles_client.create_role(
             name=data_utils.rand_name('Role'))['role']
-
-    @classmethod
-    def resource_cleanup(cls):
-        cls.roles_client.delete_role(cls.role['id'])
-        cls.groups_client.delete_group(cls.group_body['id'])
-        cls.users_client.delete_user(cls.user_body['id'])
-        cls.projects_client.delete_project(cls.project['id'])
-        # NOTE(harika-vakadi): It is necessary to disable the domain
-        # before deleting,or else it would result in unauthorized error
-        cls.domains_client.update_domain(cls.domain['id'], enabled=False)
-        cls.domains_client.delete_domain(cls.domain['id'])
-        for role in cls.roles:
-            cls.roles_client.delete_role(role['id'])
-        super(RolesV3TestJSON, cls).resource_cleanup()
+        cls.addClassResourceCleanup(cls.roles_client.delete_role,
+                                    cls.role['id'])
+        if not CONF.identity_feature_enabled.immutable_user_source:
+            cls.user_body = cls.users_client.create_user(
+                name=u_name,
+                description=u_desc,
+                email=u_email,
+                password=cls.u_password,
+                domain_id=cls.domain['id'],
+                project_id=cls.project['id']
+            )['user']
+            cls.addClassResourceCleanup(cls.users_client.delete_user,
+                                        cls.user_body['id'])
 
     @decorators.attr(type='smoke')
     @decorators.idempotent_id('18afc6c0-46cf-4911-824e-9989cc056c3a')
@@ -91,6 +97,9 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
         self.assertIn(role['id'], [r['id'] for r in roles])
 
     @decorators.idempotent_id('c6b80012-fe4a-498b-9ce8-eb391c05169f')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_grant_list_revoke_role_to_user_on_project(self):
         self.roles_client.create_user_role_on_project(self.project['id'],
                                                       self.user_body['id'],
@@ -109,6 +118,9 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
             self.project['id'], self.user_body['id'], self.role['id'])
 
     @decorators.idempotent_id('6c9a2940-3625-43a3-ac02-5dcec62ef3bd')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_grant_list_revoke_role_to_user_on_domain(self):
         self.roles_client.create_user_role_on_domain(
             self.domain['id'], self.user_body['id'], self.role['id'])
@@ -126,6 +138,9 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
             self.domain['id'], self.user_body['id'], self.role['id'])
 
     @decorators.idempotent_id('cbf11737-1904-4690-9613-97bcbb3df1c4')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_grant_list_revoke_role_to_group_on_project(self):
         # Grant role to group on project
         self.roles_client.create_group_role_on_project(
@@ -261,6 +276,9 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
         self.assertIn(self.roles[2]['id'], implies_ids)
 
     @decorators.idempotent_id('c8828027-df48-4021-95df-b65b92c7429e')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_assignments_for_implied_roles_create_delete(self):
         # Create a grant using "roles[0]"
         self.roles_client.create_user_role_on_project(
@@ -342,16 +360,18 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
         # domain role to a global one
         self._create_implied_role(domain_role1['id'], self.role['id'])
 
-        if CONF.identity_feature_enabled.forbid_global_implied_dsr:
-            # The contrary is not true: we can't create an inference rule
-            # from a global role to a domain role
-            self.assertRaises(
-                lib_exc.Forbidden,
-                self.roles_client.create_role_inference_rule,
-                self.role['id'],
-                domain_role1['id'])
+        # The contrary is not true: we can't create an inference rule
+        # from a global role to a domain role
+        self.assertRaises(
+            lib_exc.Forbidden,
+            self.roles_client.create_role_inference_rule,
+            self.role['id'],
+            domain_role1['id'])
 
     @decorators.idempotent_id('3859df7e-5b78-4e4d-b10e-214c8953842a')
+    @testtools.skipIf(CONF.identity_feature_enabled.immutable_user_source,
+                      'Skipped because environment has an immutable user '
+                      'source and solely provides read-only access to users.')
     def test_assignments_for_domain_roles(self):
         domain_role = self.setup_test_role(domain_id=self.domain['id'])
 
@@ -389,12 +409,23 @@ class RolesV3TestJSON(base.BaseIdentityV3AdminTest):
 
         rules = self.roles_client.list_all_role_inference_rules()[
             'role_inferences']
+
+        # NOTE(jaosorior): With the work related to the define-default-roles
+        # blueprint, we now have 'admin', 'member' and 'reader' by default. So
+        # we filter every other implied role to only take into account the ones
+        # relates to this test.
+        relevant_roles = (self.roles[0]['id'], self.roles[1]['id'],
+                          self.roles[2]['id'], self.role['id'])
+
+        def is_implied_role_relevant(rule):
+            return any(r for r in rule['implies'] if r['id'] in relevant_roles)
+
+        relevant_rules = filter(is_implied_role_relevant, rules)
         # Sort the rules by the number of inferences, since there should be 1
         # inference between "roles[2]" and "role" and 2 inferences for
         # "roles[0]": between "roles[1]" and "roles[2]".
-        sorted_rules = sorted(rules, key=lambda r: len(r['implies']))
+        sorted_rules = sorted(relevant_rules, key=lambda r: len(r['implies']))
 
-        # Check that 2 sets of rules are returned.
         self.assertEqual(2, len(sorted_rules))
         # Check that only 1 inference rule exists between "roles[2]" and "role"
         self.assertEqual(1, len(sorted_rules[0]['implies']))
