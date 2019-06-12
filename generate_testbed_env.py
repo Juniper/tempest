@@ -7,7 +7,7 @@ contrail_configs = configs.get('contrail_configuration') or {}
 orchestrator_configs = configs.get('orchestrator_configuration') or {}
 
 keystone_service_host = contrail_configs.get('KEYSTONE_AUTH_HOST')
-api_server_ip = contrail_configs.get('CONFIG_API_VIP') or ''
+api_server_ip = contrail_configs.get('CONTROL_NODES').split(',')[0] or ''
 api_server_host_string = 'root@'+api_server_ip
 
 # openstack related configs
