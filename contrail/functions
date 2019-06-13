@@ -68,7 +68,7 @@ function create_project() {
     fi
     id=`${with_venv} ${keystone} project list | grep ' '$project_name' ' | awk '{print $2;}'`
     if [ -z "$id" ]; then
-        ${with_venv} ${keystone} project create --name $project_name --enabled True
+        ${with_venv} ${keystone} project create --enable $project_name
     fi
 }
 
@@ -84,7 +84,7 @@ function create_user() {
     fi
     id=$(${with_venv} ${keystone} user list | grep $username | awk '{print $2;}')
     if [ -z $id ]; then
-        ${with_venv} ${keystone} user create --name $username --project $project_name --password $password --email $username@example.com
+        ${with_venv} ${keystone} user create --project $project_name --password $password --email $username@example.com $username
         ${with_venv} ${keystone} role add --user $username --project $project_name $role
     fi
 }    

@@ -69,9 +69,9 @@ iniset $TEMPEST_CONFIG DEFAULT log_file ./tempest.log
 #IDENTITY
 iniset $TEMPEST_CONFIG identity uri "$KEYSTONE_SERVICE_PROTOCOL://$KEYSTONE_SERVICE_HOST:5000/v2.0/"
 iniset $TEMPEST_CONFIG identity uri_v3 "$KEYSTONE_SERVICE_PROTOCOL://$KEYSTONE_SERVICE_HOST:5000/v3/"
-iniset $TEMPEST_CONFIG identity username $USERNAME
-iniset $TEMPEST_CONFIG identity password $PASSWORD
-iniset $TEMPEST_CONFIG identity tenant_name $TENANT_NAME
+iniset $TEMPEST_CONFIG identity username $ADMIN_USERNAME
+iniset $TEMPEST_CONFIG identity password $ADMIN_PASSWORD
+iniset $TEMPEST_CONFIG identity tenant_name $ADMIN_TENANT_NAME
 iniset $TEMPEST_CONFIG identity disable_ssl_certificate_validation True
 iniset $TEMPEST_CONFIG identity alt_username $ALT_USERNAME
 iniset $TEMPEST_CONFIG identity alt_password $password
