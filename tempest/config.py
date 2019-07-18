@@ -271,6 +271,17 @@ ComputeGroup = [
                help="Valid secondary image reference to be used in tests. "
                     "This is a required option, but if only one image is "
                     "available duplicate the value of image_ref above"),
+    cfg.StrOpt('certified_image_ref',
+               help="Valid image reference to be used in image certificate "
+                    "validation tests when enabled. This image must also "
+                    "have the required img_signature_* properties set. "
+                    "Additional details available within the following Nova "
+                    "documentation: https://docs.openstack.org/nova/latest/"
+                    "user/certificate-validation.html"),
+    cfg.ListOpt('certified_image_trusted_certs',
+                help="A list of trusted certificates to be used when the "
+                     "image certificate validation compute feature is "
+                     "enabled."),
     cfg.StrOpt('flavor_ref',
                default="1",
                help="Valid primary flavor to use in tests."),
@@ -352,6 +363,19 @@ ComputeGroup = [
                     "If both values are not specified, Tempest avoids tests "
                     "which require a microversion. Valid values are string "
                     "with format 'X.Y' or string 'latest'"),
+    cfg.StrOpt('compute_volume_common_az',
+               default=None,
+               help='AZ to be used for Cinder and Nova. Set this parameter '
+                    'when the cloud has nova.conf: cinder.cross_az_attach '
+                    'set to false. Which means volumes attached to an '
+                    'instance must be in the same availability zone in Cinder '
+                    'as the instance availability zone in Nova. Set the '
+                    'common availability zone in this config which will be '
+                    'used to boot an instance as well as creating a volume. '
+                    'NOTE: If that AZ is not in Cinder (or '
+                    'allow_availability_zone_fallback=False in cinder.conf), '
+                    'the volume create request will fail and the instance '
+                    'will fail the build request.'),
 ]
 
 placement_group = cfg.OptGroup(name='placement',
@@ -511,9 +535,8 @@ ComputeFeaturesGroup = [
                 default=True,
                 help='Enable special configuration drive with metadata.'),
     cfg.ListOpt('scheduler_enabled_filters',
-                default=["RetryFilter", "AvailabilityZoneFilter",
-                         "ComputeFilter", "ComputeCapabilitiesFilter",
-                         "ImagePropertiesFilter",
+                default=["AvailabilityZoneFilter", "ComputeFilter",
+                         "ComputeCapabilitiesFilter", "ImagePropertiesFilter",
                          "ServerGroupAntiAffinityFilter",
                          "ServerGroupAffinityFilter"],
                 help="A list of enabled filters that Nova will accept as "
@@ -726,7 +749,13 @@ NetworkFeaturesGroup = [
                 help="Does the test environment support port security?"),
     cfg.BoolOpt('floating_ips',
                 default=True,
-                help='Does the test environment support floating_ips')
+                help='Does the test environment support floating_ips'),
+    cfg.StrOpt('qos_placement_physnet', default=None,
+               help='Name of the physnet for placement based minimum '
+                    'bandwidth allocation.'),
+    cfg.StrOpt('provider_net_base_segmentation_id', default=3000,
+               help='Base segmentation ID to create provider networks. '
+                    'This value will be increased in case of conflict.')
 ]
 
 validation_group = cfg.OptGroup(name='validation',

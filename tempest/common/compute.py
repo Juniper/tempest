@@ -167,6 +167,9 @@ def create_test_server(clients, validatable=False, validation_resources=None,
         params = {'name': volume_name,
                   'imageRef': image_id,
                   'size': CONF.volume.volume_size}
+        if CONF.compute.compute_volume_common_az:
+            params.setdefault('availability_zone',
+                              CONF.compute.compute_volume_common_az)
         volume = volumes_client.create_volume(**params)
         try:
             waiters.wait_for_volume_resource_status(volumes_client,
@@ -193,6 +196,9 @@ def create_test_server(clients, validatable=False, validation_resources=None,
         # to be specified.
         image_id = ''
 
+    if CONF.compute.compute_volume_common_az:
+        kwargs.setdefault('availability_zone',
+                          CONF.compute.compute_volume_common_az)
     body = clients.servers_client.create_server(name=name, imageRef=image_id,
                                                 flavorRef=flavor,
                                                 **kwargs)
@@ -392,8 +398,11 @@ class _WebSocket(object):
 
     def _upgrade(self, url):
         """Upgrade the HTTP connection to a WebSocket and verify."""
-        # The real request goes to the /websockify URI always
-        reqdata = 'GET /websockify HTTP/1.1\r\n'
+        # It is possible to pass the path as a query parameter in the request,
+        # so use it if present
+        qparams = urlparse.parse_qs(url.query)
+        path = qparams['path'][0] if 'path' in qparams else '/websockify'
+        reqdata = 'GET %s HTTP/1.1\r\n' % path
         reqdata += 'Host: %s' % url.hostname
         # Add port only if we have one specified
         if url.port:
@@ -402,7 +411,7 @@ class _WebSocket(object):
         reqdata += '\r\n'
         # Tell the HTTP Server to Upgrade the connection to a WebSocket
         reqdata += 'Upgrade: websocket\r\nConnection: Upgrade\r\n'
-        # The token=xxx is sent as a Cookie not in the URI
+        # The token=xxx is sent as a Cookie not in the URI for noVNC < v1.1.0
         reqdata += 'Cookie: %s\r\n' % url.query
         # Use a hard-coded WebSocket key since a test program
         reqdata += 'Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n'
