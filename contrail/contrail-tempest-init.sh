@@ -36,9 +36,9 @@ cp $TEMPEST_DIR/etc/tempest.conf.sample $TEMPEST_CONFIG
 password=${OS_PASSWORD:-contrail123}
 ALT_USERNAME=${ALT_USERNAME:-alt_demo}
 ALT_TENANT_NAME=${ALT_TENANT_NAME:-alt_demo}
-USERNAME="demo"
+USERNAME="admin"
 PASSWORD=$OS_PASSWORD
-TENANT_NAME="demo"
+TENANT_NAME="admin"
 
 ADMIN_USERNAME="admin"
 ADMIN_PASSWORD=$OS_PASSWORD
@@ -76,7 +76,7 @@ iniset $TEMPEST_CONFIG identity disable_ssl_certificate_validation True
 iniset $TEMPEST_CONFIG identity alt_username $ALT_USERNAME
 iniset $TEMPEST_CONFIG identity alt_password $password
 iniset $TEMPEST_CONFIG identity alt_tenant_name $ALT_TENANT_NAME
-iniset $TEMPEST_CONFIG identity auth_version v2 #ToDo: Forcing it to V2 for now
+iniset $TEMPEST_CONFIG identity auth_version v3 #ToDo: Forcing it to V2 for now
 
 #AUTH
 iniset $TEMPEST_CONFIG auth admin_username $ADMIN_USERNAME
